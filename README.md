@@ -1,8 +1,10 @@
 # customer_hand
 
-`customer_hand` 是一个面向学习和求职展示的 LLM 客服应用练习项目。当前阶段先完成 FastAPI 服务骨架、消息接口和会话状态查看/重置能力，后续会逐步加入 Tracker 对象化、Action、LLM Command、Tool Calling 和 RAG。
+`customer_hand` 是一个学习型 LLM 智能客服项目，目标是通过一个可运行、可测试、可演示的小项目，逐步掌握大模型应用开发工程师需要的后端、LLM、Agent、Tool Calling 和 RAG 能力。
 
-## 当前已完成功能
+当前阶段重点是先跑通 FastAPI API、消息收发、会话状态查看和会话重置。后续会继续加入 Tracker 对象化、Action、Flow、LLM Command、Tool Calling 和 RAG。
+
+## 当前已完成接口
 
 - `GET /health`：服务健康检查。
 - `POST /api/messages`：发送用户消息，返回稳定的消息响应结构。
@@ -28,23 +30,23 @@ customer_hand/
 
 ## 环境准备
 
-在 Windows PowerShell 或 CMD 中进入项目目录：
+在 Windows CMD 或 PowerShell 中进入项目目录：
 
-```powershell
-cd D:\code4\llm-universe-main\customer_simple\customer_hand
+```cmd
+cd /d D:\code4\llm-universe-main\customer_simple\customer_hand
 conda activate customer
 pip install -r requirements.txt
 ```
 
-## 环境变量配置
+## 环境变量说明
 
-本项目支持从 `.env` 或系统环境变量读取配置。你可以复制示例文件：
+复制环境变量示例文件：
 
-```powershell
+```cmd
 copy .env.example .env
 ```
 
-真实 API Key 不要提交到 Git，也不要写入代码。你已经在本机配置了阿里云百炼 API Key 环境变量时，可以不把真实 Key 写进 `.env`。
+真实 API Key 不要提交到 Git，也不要写入代码或 README。你使用的是阿里云百炼平台 API Key，并且已经在本机环境变量中配置好时，可以不把真实 Key 写入 `.env`。
 
 当前代码优先读取：
 
@@ -53,31 +55,35 @@ copy .env.example .env
 - `QWEN_MODEL`
 - `LLM_ENABLED`
 
-如果你的本机使用其他变量名，请根据实际配置填写，例如 `BAILIAN_API_KEY` 或 `DASHSCOPE_API_KEY`。当前代码实际使用的是 `DASHSCOPE_API_KEY`；后续可以再统一变量名。
+如果你的本机使用其他变量名，请根据实际配置填写，例如 `BAILIAN_API_KEY` 或 `DASHSCOPE_API_KEY`。当前 demo 即使不启用真实 LLM，也应该能跑通基础 API；如需避免真实 LLM 调用，可保持：
 
-## 启动方式
+```cmd
+set LLM_ENABLED=false
+```
 
-```powershell
+## 启动服务
+
+```cmd
 uvicorn main:app --reload
 ```
 
-启动后访问：
+启动后访问 API 文档：
 
 ```text
 http://127.0.0.1:8000/docs
 ```
 
-## API 验证方式
+## 第一轮 Demo 操作步骤
 
-### 1. 健康检查
+### Step 1：检查健康状态
 
-PowerShell:
+CMD:
 
-```powershell
-curl.exe http://127.0.0.1:8000/health
+```cmd
+curl http://127.0.0.1:8000/health
 ```
 
-预期返回类似：
+预期返回：
 
 ```json
 {
@@ -87,53 +93,60 @@ curl.exe http://127.0.0.1:8000/health
 }
 ```
 
-### 2. 发送消息
+### Step 2：发送一条消息
 
-PowerShell:
+CMD:
 
-```powershell
-curl.exe -X POST http://127.0.0.1:8000/api/messages `
-  -H "Content-Type: application/json" `
+```cmd
+curl -X POST http://127.0.0.1:8000/api/messages ^
+  -H "Content-Type: application/json" ^
   -d "{\"sender_id\":\"user_001\",\"message\":\"我要退货\"}"
 ```
 
-预期返回是列表结构，每一项至少包含：
+预期返回是列表结构，每一项至少包含 `recipient_id`、`text`、`timestamp`、`metadata`：
 
 ```json
 [
   {
     "recipient_id": "user_001",
-    "text": "...",
-    "timestamp": "...",
+    "text": "请提供订单号。",
+    "timestamp": "2026-05-08T12:00:00+00:00",
     "metadata": {}
   }
 ]
 ```
 
-### 3. 查看 tracker
+实际 `text` 会根据当前 Agent 逻辑变化，但返回结构应保持稳定。
 
-```powershell
-curl.exe http://127.0.0.1:8000/api/tracker/user_001/full
+### Step 3：查看 tracker
+
+CMD:
+
+```cmd
+curl http://127.0.0.1:8000/api/tracker/user_001/full
 ```
 
-预期返回：
+可以看到 `user_001` 的当前会话状态，包括用户消息、机器人回复、槽位和当前流程状态。预期结构：
 
 ```json
 {
   "sender_id": "user_001",
   "exists": true,
   "tracker": {
-    "...": "..."
+    "sender_id": "user_001",
+    "latest_message": "我要退货",
+    "slots": {},
+    "events": []
   }
 }
 ```
 
-如果会话不存在，会返回 HTTP 404。
+### Step 4：重置 tracker
 
-### 4. 重置 tracker
+CMD:
 
-```powershell
-curl.exe -X POST http://127.0.0.1:8000/api/tracker/user_001/reset
+```cmd
+curl -X POST http://127.0.0.1:8000/api/tracker/user_001/reset
 ```
 
 预期返回：
@@ -146,24 +159,64 @@ curl.exe -X POST http://127.0.0.1:8000/api/tracker/user_001/reset
 }
 ```
 
+### Step 5：再次查看 tracker
+
+CMD:
+
+```cmd
+curl http://127.0.0.1:8000/api/tracker/user_001/full
+```
+
+当前代码的实际行为是：reset 后该会话被删除，再次查询会返回 HTTP `404`，响应中包含：
+
+```json
+{
+  "detail": "Tracker not found"
+}
+```
+
+## 推荐演示问题
+
+当前阶段可以用这些问题测试基础消息链路：
+
+- `我要退货`
+- `查物流`
+- `你好`
+- `我的订单到了吗`
+- `帮我看看售后怎么处理`
+
+注意：当前项目还处在最小可用 API demo 阶段，回复可能是规则回复或最小可用回复。
+
+## 运行测试
+
+```cmd
+pytest test/test_api_basic.py -v
+```
+
+当前测试覆盖：
+
+- `GET /health`
+- `POST /api/messages`
+- `POST /api/tracker/{sender_id}/reset`
+- reset 后再次查询 tracker 返回 404
+
 ## 当前项目边界
 
-当前项目还是早期版本：
+当前项目还不是完整智能客服：
 
-- 还没有完整的 Tracker 对象化。
-- 还没有完整 Action 系统。
-- 还没有生产级 LLM Command 链路。
-- 还没有 Tool Calling。
-- 还没有 RAG。
+- 当前 LLM、Action、Flow、RAG 还在后续开发中。
+- 当前回复可能是最小可用回复或规则回复。
+- 当前 README 主要用于跑通第一轮 API demo。
+- 当前重点是保证 API 结构稳定、会话可查看、会话可重置。
 
-后续计划会逐步补齐：
+## 后续计划
 
-1. Tracker 对象化和会话管理。
-2. Action registry 和业务 Action。
-3. LLM Prompt -> CommandParser -> CommandProcessor。
-4. Tool Calling。
-5. 最小可用 RAG。
-6. 测试、日志、部署和作品集文档。
+- Day 6-8：实现 `DialogueStateTracker`，让会话状态从裸字典逐步对象化。
+- Day 9-14：实现 Action + Flow 闭环，把硬编码回复迁移到 Action。
+- Day 15-20：接入 LLM Command，让 LLM 输出受约束命令，再由程序执行。
+- Day 21-25：完善 API 和 inspect 页面，让状态、命令、流程变化可视化。
+- Day 26-36：实现业务 Action + Tool Calling，体现 Agent 工具调用能力。
+- Day 37-40：实现最小可用 RAG MVP，补充知识库问答能力。
 
 ## 常见问题
 
@@ -171,7 +224,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/tracker/user_001/reset
 
 如果提示找不到依赖或 Python 版本不对，先执行：
 
-```powershell
+```cmd
 conda activate customer
 ```
 
@@ -179,7 +232,7 @@ conda activate customer
 
 执行：
 
-```powershell
+```cmd
 pip install -r requirements.txt
 ```
 
@@ -187,7 +240,7 @@ pip install -r requirements.txt
 
 默认端口是 `8000`。如果被占用，可以换端口：
 
-```powershell
+```cmd
 uvicorn main:app --reload --port 8001
 ```
 
