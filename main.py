@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from app.agent.agent import Agent
@@ -71,8 +71,27 @@ def send_message(req: MessageRequest) -> list[MessageResponse]:
 def get_tracker_full(sender_id: str):
     tracker = store.retrieve(sender_id)
     if tracker is None:
-        return {"error": "session not found"}
-    return tracker
+        raise HTTPException(status_code=404, detail="Tracker not found")
+
+    return {
+        "sender_id": sender_id,
+        "exists": True,
+        "tracker": tracker,
+    }
+
+
+@app.post("/api/tracker/{sender_id}/reset")
+def reset_tracker(sender_id: str):
+    deleted = store.delete(sender_id)
+    return {
+        "sender_id": sender_id,
+        "reset": deleted,
+        "message": (
+            "Tracker reset successfully"
+            if deleted
+            else "Tracker did not exist"
+        ),
+    }
 
 
 if __name__ == "__main__":

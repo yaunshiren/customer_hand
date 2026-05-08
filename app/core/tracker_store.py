@@ -22,3 +22,10 @@ class InMemoryTrackerStore:
 
     def retrieve(self, sender_id: str):
         return self._data.get(sender_id)
+
+    def delete(self, sender_id: str) -> bool:
+        if sender_id not in self._data:
+            return False
+
+        del self._data[sender_id]
+        return True
