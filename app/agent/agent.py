@@ -4,6 +4,9 @@ from datetime import datetime, timezone
 
 from typing import Any
 
+from app.actions.base import ActionResult
+from app.actions.builtin import register_builtin_actions
+from app.actions.registry import get_action
 from app.dialogue.prompt_builder import PromptBuilder
 from app.dialogue.llm_generator import LLMCommandGenerator
 from app.dialogue.command_parser import CommandParser
@@ -15,6 +18,7 @@ def now_iso():
 
 class Agent:
     def __init__(self, tracker_store: InMemoryTrackerStore, flows: dict[str, any] | None = None):
+        register_builtin_actions()
         self.tracker_store = tracker_store
         self.flows = flows or {}
         self.flow_executor = FlowExecutor()
@@ -54,7 +58,7 @@ class Agent:
 
         
         #policy: 如果有activate_flow, 走flow_executor 决策
-        next_action = "action_echo"
+        next_action = "action_default_fallback"
         flow_def = None
 
         active_flow = tracker.get("active_flow")
@@ -72,29 +76,31 @@ class Agent:
                     tracker["slot_to_collect"] = None
                     tracker["flow_step_index"] = 0
         
-        ## action：根据 next_action 生成文本（本阶段只覆盖你需要的三种）
+        if next_action == "action_listen":
+            next_action = "action_ask_order_id"
+
         if next_action == "action_ask_order_id":
-            tracker["latest_action_name"] = "action_ask_order_id"
             tracker["slot_to_collect"] = "order_id"  # 关键：保证下一轮能 collect 到 order_id
-            bot_text = "请提供订单号。"
-        elif next_action == "action_listen":
-            tracker["latest_action_name"] = "action_listen"
-            bot_text = "我在等你提供订单号。"
-        elif next_action == "action_confirm_postsale":
-            tracker["latest_action_name"] = "action_confirm_postsale"
-            order_id = tracker.get("slots", {}).get("order_id", "")
-            bot_text = f"已收到订单号 {order_id}，正在为你提交售后申请。"
-        elif next_action == "action_show_logistics":
-            tracker["latest_action_name"] = "action_show_logistics"
-            order_id = tracker.get("slots", {}).get("order_id", "")
-            bot_text = f"订单{order_id} 当前状态：运输中，预计明日送达。"
-        else:
-            tracker["latest_action_name"] = next_action
-            bot_text = f"已收到：{text}"
+
+        action = get_action(next_action)
+        if action is None:
+            next_action = "action_default_fallback"
+            action = get_action(next_action)
+
+        result = action.run(tracker) if action else ActionResult(text="系统暂时不可用。")
+        bot_text = result.text or ""
+        tracker["latest_action_name"] = next_action
+        for event in result.events:
+            tracker["events"].append(event)
 
         tracker["events"].append({"event": "bot", "text": bot_text, "timestamp": now_iso()})
         self.tracker_store.save(tracker)
-        return [{"recipient_id": sender_id, "text": bot_text, "timestamp": now_iso()}]
+        return [{
+            "recipient_id": sender_id,
+            "text": bot_text,
+            "timestamp": now_iso(),
+            "metadata": result.metadata,
+        }]
 
 
     def _try_llm_commands(self, tracker: dict[str, Any], text: str) -> bool:  # pyright: ignore[reportUnreachable]
