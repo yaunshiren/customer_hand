@@ -1,0 +1,13 @@
+version: "1.0"
+
+flows:
+  query_logistics:
+    name: 物流查询
+    description: 用户查询物流进度
+    steps:
+      - id: ask_order_id
+        action: action_ask_order_id
+      - id: collect_order
+        collect: order_id
+      - id: reply_logistics
+        action: action_show_logistics
