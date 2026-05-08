@@ -43,3 +43,46 @@ class DialogueStateTracker:
                 "timestamp": timestamp,
             }
         )
+
+    def set_slot(self, key: str, value: Any) -> None:
+        timestamp = now_iso()
+        self.slots[key] = value
+        self.updated_at = timestamp
+        self.events.append(
+            {
+                "event": "slot",
+                "key": key,
+                "value": value,
+                "timestamp": timestamp,
+            }
+        )
+
+    def get_slot(self, key: str, default: Any = None) -> Any:
+        return self.slots.get(key, default)
+
+    def get_all_slots(self) -> dict[str, Any]:
+        return dict(self.slots)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "sender_id": self.sender_id,
+            "slots": dict(self.slots),
+            "events": list(self.events),
+            "latest_message": self.latest_message,
+            "latest_bot_message": self.latest_bot_message,
+            "active_flow": self.active_flow,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DialogueStateTracker":
+        tracker = cls(sender_id=str(data.get("sender_id", "default")))
+        tracker.slots = dict(data.get("slots") or {})
+        tracker.events = list(data.get("events") or [])
+        tracker.latest_message = data.get("latest_message")
+        tracker.latest_bot_message = data.get("latest_bot_message")
+        tracker.active_flow = data.get("active_flow")
+        tracker.created_at = data.get("created_at") or tracker.created_at
+        tracker.updated_at = data.get("updated_at") or tracker.updated_at
+        return tracker
