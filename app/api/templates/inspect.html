@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Customer Hand Inspect</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --panel: #ffffff;
+      --border: #d9deea;
+      --text: #182033;
+      --muted: #6b7280;
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --danger: #b91c1c;
+      --success: #047857;
+      --user: #e0ecff;
+      --bot: #eef7f0;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, "Microsoft YaHei", sans-serif;
+    }
+
+    header {
+      padding: 20px 28px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(360px, 1.1fr) minmax(320px, 0.9fr);
+      gap: 18px;
+      padding: 18px;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      min-width: 0;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .controls {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      color: var(--text);
+      font: inherit;
+      background: #fff;
+    }
+
+    textarea {
+      min-height: 84px;
+      resize: vertical;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 9px 14px;
+      color: #fff;
+      background: var(--primary);
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: var(--primary-dark);
+    }
+
+    button.secondary {
+      color: var(--text);
+      background: #e5e7eb;
+    }
+
+    button.secondary:hover {
+      background: #d1d5db;
+    }
+
+    .status {
+      min-height: 22px;
+      padding: 0 16px 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .status.error {
+      color: var(--danger);
+    }
+
+    .status.success {
+      color: var(--success);
+    }
+
+    .messages {
+      display: grid;
+      gap: 10px;
+      max-height: 480px;
+      overflow: auto;
+      padding: 16px;
+    }
+
+    .message {
+      max-width: 86%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .message.user {
+      justify-self: end;
+      background: var(--user);
+    }
+
+    .message.bot {
+      justify-self: start;
+      background: var(--bot);
+    }
+
+    .message.system {
+      justify-self: center;
+      max-width: 100%;
+      color: var(--muted);
+      background: #f3f4f6;
+      font-size: 13px;
+    }
+
+    pre {
+      margin: 0;
+      min-height: 520px;
+      max-height: 640px;
+      overflow: auto;
+      padding: 16px;
+      color: #111827;
+      background: #f9fafb;
+      font-size: 13px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    @media (max-width: 860px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Customer Hand Inspect</h1>
+  </header>
+
+  <main>
+    <section>
+      <div class="panel-header">
+        <h2 class="panel-title">对话调试</h2>
+      </div>
+
+      <div class="controls">
+        <label>
+          sender_id
+          <input id="senderId" type="text" value="user_001" autocomplete="off">
+        </label>
+
+        <label>
+          message
+          <textarea id="messageInput" placeholder="例如：我要退货"></textarea>
+        </label>
+
+        <div class="button-row">
+          <button type="button" onclick="sendMessage()">发送</button>
+          <button type="button" class="secondary" onclick="loadTracker()">刷新 Tracker</button>
+          <button type="button" class="secondary" onclick="resetSession()">重置会话</button>
+        </div>
+      </div>
+
+      <div id="status" class="status"></div>
+      <div id="messages" class="messages">
+        <div class="message system">输入消息后发送，可在右侧查看 tracker 状态。</div>
+      </div>
+    </section>
+
+    <section>
+      <div class="panel-header">
+        <h2 class="panel-title">Tracker 状态</h2>
+      </div>
+      <pre id="trackerView">尚未加载 tracker。</pre>
+    </section>
+  </main>
+
+  <script>
+    const senderInput = document.getElementById("senderId");
+    const messageInput = document.getElementById("messageInput");
+    const statusBox = document.getElementById("status");
+    const messagesBox = document.getElementById("messages");
+    const trackerView = document.getElementById("trackerView");
+
+    function setStatus(message, kind = "") {
+      statusBox.textContent = message || "";
+      statusBox.className = kind ? `status ${kind}` : "status";
+    }
+
+    function appendMessage(role, text) {
+      const item = document.createElement("div");
+      item.className = `message ${role}`;
+      item.textContent = text;
+      messagesBox.appendChild(item);
+      messagesBox.scrollTop = messagesBox.scrollHeight;
+    }
+
+    async function readError(response) {
+      try {
+        const data = await response.json();
+        return data.detail || `请求失败：${response.status}`;
+      } catch (error) {
+        return `请求失败：${response.status}`;
+      }
+    }
+
+    async function sendMessage() {
+      const senderId = senderInput.value.trim();
+      const message = messageInput.value.trim();
+
+      if (!senderId) {
+        setStatus("sender_id 不能为空。", "error");
+        return;
+      }
+      if (!message) {
+        setStatus("message 不能为空。", "error");
+        return;
+      }
+
+      try {
+        setStatus("正在发送...");
+        const response = await fetch("/api/messages", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            sender_id: senderId,
+            message: message,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(await readError(response));
+        }
+
+        const data = await response.json();
+        appendMessage("user", message);
+        for (const item of data) {
+          appendMessage("bot", item.text || "");
+        }
+
+        messageInput.value = "";
+        setStatus("消息已发送。", "success");
+        await loadTracker();
+      } catch (error) {
+        setStatus(error.message || "发送失败。", "error");
+      }
+    }
+
+    async function loadTracker() {
+      const senderId = senderInput.value.trim();
+
+      if (!senderId) {
+        setStatus("sender_id 不能为空。", "error");
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/tracker/${encodeURIComponent(senderId)}/full`);
+
+        if (response.status === 404) {
+          trackerView.textContent = "当前会话不存在。";
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(await readError(response));
+        }
+
+        const data = await response.json();
+        trackerView.textContent = JSON.stringify(data, null, 2);
+      } catch (error) {
+        setStatus(error.message || "加载 tracker 失败。", "error");
+      }
+    }
+
+    async function resetSession() {
+      const senderId = senderInput.value.trim();
+
+      if (!senderId) {
+        setStatus("sender_id 不能为空。", "error");
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/tracker/${encodeURIComponent(senderId)}/reset`, {
+          method: "POST",
+        });
+
+        if (!response.ok) {
+          throw new Error(await readError(response));
+        }
+
+        messagesBox.innerHTML = "";
+        appendMessage("system", "会话已重置。");
+        setStatus("会话已重置。", "success");
+        await loadTracker();
+      } catch (error) {
+        setStatus(error.message || "重置会话失败。", "error");
+      }
+    }
+
+    messageInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
+    });
+  </script>
+</body>
+</html>
