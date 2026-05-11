@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 
 from app.agent.agent import Agent
+from app.api.errors import bad_request, not_found, register_exception_handlers
 from app.api.schemas import MessageRequest, MessageResponse
 from app.core.flow_loader import FlowLoader
 from app.core.tracker_store import InMemoryTrackerStore
@@ -16,6 +17,7 @@ SERVICE_NAME = "customer_hand"
 VERSION = "0.1.0"
 
 app = FastAPI(title=SERVICE_NAME, version=VERSION)
+register_exception_handlers(app)
 
 
 @app.get("/health")
@@ -34,6 +36,9 @@ agent = Agent(tracker_store=store, flows=flows)
 
 @app.post("/api/messages", response_model=list[MessageResponse])
 def send_message(req: MessageRequest) -> list[MessageResponse]:
+    if not req.message.strip():
+        raise bad_request("message must not be empty")
+
     raw_responses = agent.handle_message(
         message=req.message,
         sender_id=req.sender_id,
@@ -58,7 +63,7 @@ def send_message(req: MessageRequest) -> list[MessageResponse]:
 def get_tracker_full(sender_id: str):
     tracker = store.retrieve(sender_id)
     if tracker is None:
-        raise HTTPException(status_code=404, detail="Tracker not found")
+        raise not_found("tracker not found")
 
     return {
         "sender_id": sender_id,
