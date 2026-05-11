@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from app.agent.agent import Agent
 from app.api.errors import bad_request, not_found, register_exception_handlers
@@ -15,8 +17,20 @@ load_dotenv()
 
 SERVICE_NAME = "customer_hand"
 VERSION = "0.1.0"
+BASE_DIR = Path(__file__).resolve().parent
+INSPECT_TEMPLATE = BASE_DIR / "app" / "api" / "templates" / "inspect.html"
 
 app = FastAPI(title=SERVICE_NAME, version=VERSION)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+    ],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 register_exception_handlers(app)
 
 
@@ -27,6 +41,14 @@ def health():
         "service": SERVICE_NAME,
         "version": VERSION,
     }
+
+
+@app.get("/inspect", response_class=FileResponse)
+def inspect_page() -> FileResponse:
+    if not INSPECT_TEMPLATE.exists():
+        raise not_found("inspect template not found")
+
+    return FileResponse(INSPECT_TEMPLATE)
 
 
 store = InMemoryTrackerStore()
