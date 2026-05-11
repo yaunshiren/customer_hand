@@ -1,11 +1,10 @@
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
 
 from app.agent.agent import Agent
+from app.api.schemas import MessageRequest, MessageResponse
 from app.core.flow_loader import FlowLoader
 from app.core.tracker_store import InMemoryTrackerStore
 import uvicorn
@@ -17,18 +16,6 @@ SERVICE_NAME = "customer_hand"
 VERSION = "0.1.0"
 
 app = FastAPI(title=SERVICE_NAME, version=VERSION)
-
-
-class MessageRequest(BaseModel):
-    sender_id: str = Field(default="user", min_length=1)
-    message: str = Field(min_length=1)
-
-
-class MessageResponse(BaseModel):
-    recipient_id: str
-    text: str | None = None
-    timestamp: str
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 @app.get("/health")

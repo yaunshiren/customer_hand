@@ -1,0 +1,27 @@
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class MessageRequest(BaseModel):
+    sender_id: str = Field(default="user", min_length=1)
+    message: str = Field(min_length=1)
+
+
+class MessageResponse(BaseModel):
+    recipient_id: str
+    text: str | None = None
+    timestamp: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class TrackerResponse(BaseModel):
+    sender_id: str
+    exists: bool
+    tracker: dict[str, Any] | None = None
+
+
+class ErrorResponse(BaseModel):
+    detail: str
