@@ -1,7 +1,7 @@
 version: "1.0"
 
 flows:
-  apply_postsale:
+  postsale:
     name: 申请售后
     description: 用户发起退货/售后
     steps:
