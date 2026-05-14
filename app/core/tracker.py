@@ -17,6 +17,11 @@ class DialogueStateTracker:
         self.latest_message: str | None = None
         self.latest_bot_message: str | None = None
         self.active_flow: str | None = None
+        self.flow_status: str = "idle"
+        self.flow_step_index: int = 0
+        self.slot_to_collect: str | None = None
+        self.flow_history: list[dict[str, Any]] = []
+        self.latest_action_name: str | None = None
         self.created_at = timestamp
         self.updated_at = timestamp
 
@@ -71,6 +76,11 @@ class DialogueStateTracker:
             "latest_message": self.latest_message,
             "latest_bot_message": self.latest_bot_message,
             "active_flow": self.active_flow,
+            "flow_status": self.flow_status,
+            "flow_step_index": self.flow_step_index,
+            "slot_to_collect": self.slot_to_collect,
+            "flow_history": list(self.flow_history),
+            "latest_action_name": self.latest_action_name,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -83,6 +93,11 @@ class DialogueStateTracker:
         tracker.latest_message = data.get("latest_message")
         tracker.latest_bot_message = data.get("latest_bot_message")
         tracker.active_flow = data.get("active_flow")
+        tracker.flow_status = str(data.get("flow_status") or "idle")
+        tracker.flow_step_index = int(data.get("flow_step_index") or 0)
+        tracker.slot_to_collect = data.get("slot_to_collect")
+        tracker.flow_history = list(data.get("flow_history") or [])
+        tracker.latest_action_name = data.get("latest_action_name")
         tracker.created_at = data.get("created_at") or tracker.created_at
         tracker.updated_at = data.get("updated_at") or tracker.updated_at
         return tracker

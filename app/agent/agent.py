@@ -7,8 +7,6 @@ from app.actions.base import ActionResult
 from app.actions.builtin import register_builtin_actions
 from app.actions.registry import get_action
 from app.core.tracker_store import InMemoryTrackerStore
-from app.dialogue.command_parser import CommandParser
-from app.dialogue.command_processor import CommandProcessor
 from app.dialogue.flow_executor import FlowExecutor
 from app.dialogue.llm_generator import LLMCommandGenerator
 from app.llm.prompts import PromptBuilder
@@ -31,8 +29,6 @@ class Agent:
 
         self.prompt_builder = PromptBuilder()
         self.llm_generator = LLMCommandGenerator()
-        self.command_parser = CommandParser()
-        self.command_processor = CommandProcessor()
 
     def handle_message(self, message: str, sender_id: str) -> list[dict[str, Any]]:
         tracker = self.tracker_store.get_or_create(sender_id)
@@ -40,18 +36,16 @@ class Agent:
         self._record_user_message(tracker, text)
 
         llm_result = self._try_llm_commands(tracker, text)
-        llm_ok = bool(llm_result.get("handled"))
-        llm_reply_text = llm_result.get("reply_text")
-        if llm_reply_text:
+        if llm_result.get("reply_text"):
             return self._final_response(
                 tracker=tracker,
                 sender_id=sender_id,
-                text=llm_reply_text,
+                text=str(llm_result["reply_text"]),
                 action_name="llm_chitchat",
                 metadata={"source": "llm", "command_type": "chitchat"},
             )
 
-        if not llm_ok and self._get_active_flow(tracker) is None:
+        if not llm_result.get("handled") and self._get_active_flow(tracker) is None:
             self._apply_rule_understanding(tracker, text)
 
         slot_to_collect = self._get_slot_to_collect(tracker)
@@ -62,6 +56,7 @@ class Agent:
         next_action = self._decide_next_action(tracker)
         if next_action == "action_ask_order_id":
             self._set_slot_to_collect(tracker, "order_id")
+            self._set_flow_status(tracker, "waiting_input")
 
         action = get_action(next_action)
         if action is None:
@@ -70,7 +65,7 @@ class Agent:
 
         result = action.run(tracker) if action else ActionResult(text="系统暂时不可用。")
         for event in result.events:
-            tracker.setdefault("events", []).append(event)
+            tracker.events.append(event)
 
         return self._final_response(
             tracker=tracker,
@@ -121,9 +116,9 @@ class Agent:
 
     def _apply_rule_understanding(self, tracker: Any, text: str) -> None:
         if any(keyword in text for keyword in ("退货", "售后", "退款", "不想要")):
-            self._set_active_flow(tracker, "postsale")
+            self._set_flow(tracker, "postsale")
         elif any(keyword in text for keyword in ("物流", "快递", "配送")):
-            self._set_active_flow(tracker, "logistics")
+            self._set_flow(tracker, "logistics")
 
     def _decide_next_action(self, tracker: Any) -> str:
         active_flow = self._get_active_flow(tracker)
@@ -141,10 +136,8 @@ class Agent:
         decision = self.flow_executor.decide_next_action(tracker, flow_def)
         next_action = decision.get("next_action") or "action_default_fallback"
 
-        if tracker.get("flow_step_index", 0) >= len(flow_def.get("steps", []) or []):
-            self._set_active_flow(tracker, None)
-            self._set_slot_to_collect(tracker, None)
-            tracker["flow_step_index"] = 0
+        if bool(decision.get("flow_done")):
+            self.flow_executor.finish_flow(tracker, active_flow)
 
         return "action_ask_order_id" if next_action == "action_listen" else next_action
 
@@ -154,7 +147,7 @@ class Agent:
             return
 
         tracker["latest_message"] = text
-        tracker.setdefault("events", []).append({"event": "user", "text": text, "timestamp": now_iso()})
+        self._add_event(tracker, "user", text=text)
 
     def _final_response(
         self,
@@ -165,40 +158,72 @@ class Agent:
         action_name: str,
         metadata: dict[str, Any],
     ) -> list[dict[str, Any]]:
-        tracker["latest_action_name"] = action_name
+        self._set_latest_action_name(tracker, action_name)
         if hasattr(tracker, "add_bot_message"):
             tracker.add_bot_message(text)
         else:
             tracker["latest_bot_message"] = text
-            tracker.setdefault("events", []).append({"event": "bot", "text": text, "timestamp": now_iso()})
+            self._add_event(tracker, "bot", text=text)
 
         self.tracker_store.save(tracker)
-        return [{
-            "recipient_id": sender_id,
-            "text": text,
-            "timestamp": now_iso(),
-            "metadata": metadata,
-        }]
+        return [
+            {
+                "recipient_id": sender_id,
+                "text": text,
+                "timestamp": now_iso(),
+                "metadata": metadata,
+            }
+        ]
 
     def _get_active_flow(self, tracker: Any) -> str | None:
         if hasattr(tracker, "active_flow"):
             return tracker.active_flow
         return tracker.get("active_flow")
 
+    def _set_flow(self, tracker: Any, flow_name: str | None) -> None:
+        self._set_active_flow(tracker, flow_name)
+        self._set_flow_status(tracker, "running" if flow_name else "idle")
+        if flow_name:
+            self.flow_executor.start_flow(tracker, flow_name)
+
     def _set_active_flow(self, tracker: Any, flow_name: str | None) -> None:
         if hasattr(tracker, "active_flow"):
             tracker.active_flow = flow_name
         else:
             tracker["active_flow"] = flow_name
-        tracker["flow_step_index"] = 0
-        tracker["slot_to_collect"] = None
-        tracker.setdefault("slots", {})
+
+    def _get_flow_status(self, tracker: Any) -> str:
+        if hasattr(tracker, "flow_status"):
+            return str(tracker.flow_status)
+        return str(tracker.get("flow_status", "idle"))
+
+    def _set_flow_status(self, tracker: Any, status: str) -> None:
+        if hasattr(tracker, "flow_status"):
+            tracker.flow_status = status
+        else:
+            tracker["flow_status"] = status
+
+    def _get_flow_step_index(self, tracker: Any) -> int:
+        if hasattr(tracker, "flow_step_index"):
+            return int(tracker.flow_step_index)
+        return int(tracker.get("flow_step_index", 0) or 0)
+
+    def _set_flow_step_index(self, tracker: Any, value: int) -> None:
+        if hasattr(tracker, "flow_step_index"):
+            tracker.flow_step_index = int(value)
+        else:
+            tracker["flow_step_index"] = int(value)
 
     def _get_slot_to_collect(self, tracker: Any) -> str | None:
+        if hasattr(tracker, "slot_to_collect"):
+            return tracker.slot_to_collect
         return tracker.get("slot_to_collect")
 
     def _set_slot_to_collect(self, tracker: Any, slot_name: str | None) -> None:
-        tracker["slot_to_collect"] = slot_name
+        if hasattr(tracker, "slot_to_collect"):
+            tracker.slot_to_collect = slot_name
+        else:
+            tracker["slot_to_collect"] = slot_name
 
     def _get_slot(self, tracker: Any, key: str) -> Any:
         if hasattr(tracker, "get_slot"):
@@ -212,3 +237,27 @@ class Agent:
             tracker.set_slot(key, value)
         else:
             tracker.setdefault("slots", {})[key] = value
+
+    def _set_latest_action_name(self, tracker: Any, action_name: str) -> None:
+        if hasattr(tracker, "latest_action_name"):
+            tracker.latest_action_name = action_name
+        else:
+            tracker["latest_action_name"] = action_name
+
+    def _add_event(self, tracker: Any, event_type: str, **data: Any) -> None:
+        if hasattr(tracker, "events"):
+            tracker.events.append(
+                {
+                    "event": event_type,
+                    "timestamp": now_iso(),
+                    **data,
+                }
+            )
+            return
+        tracker.setdefault("events", []).append(
+            {
+                "event": event_type,
+                "timestamp": now_iso(),
+                **data,
+            }
+        )

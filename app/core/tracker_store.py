@@ -10,9 +10,6 @@ class _StoreTracker(DialogueStateTracker):
 
     def __init__(self, sender_id: str):
         super().__init__(sender_id)
-        self.latest_action_name: str | None = None
-        self.flow_step_index = 0
-        self.slot_to_collect: str | None = None
 
     def __getitem__(self, key: str) -> Any:
         return getattr(self, key)
@@ -28,17 +25,6 @@ class _StoreTracker(DialogueStateTracker):
             setattr(self, key, default)
         return getattr(self, key)
 
-    def to_dict(self) -> dict[str, Any]:
-        data = super().to_dict()
-        data.update(
-            {
-                "latest_action_name": self.latest_action_name,
-                "flow_step_index": self.flow_step_index,
-                "slot_to_collect": self.slot_to_collect,
-            }
-        )
-        return data
-
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "_StoreTracker":
         tracker = cls(sender_id=str(data.get("sender_id", "default")))
@@ -47,11 +33,13 @@ class _StoreTracker(DialogueStateTracker):
         tracker.latest_message = data.get("latest_message")
         tracker.latest_bot_message = data.get("latest_bot_message")
         tracker.active_flow = data.get("active_flow")
-        tracker.created_at = data.get("created_at") or tracker.created_at
-        tracker.updated_at = data.get("updated_at") or tracker.updated_at
-        tracker.latest_action_name = data.get("latest_action_name")
+        tracker.flow_status = str(data.get("flow_status") or "idle")
         tracker.flow_step_index = int(data.get("flow_step_index") or 0)
         tracker.slot_to_collect = data.get("slot_to_collect")
+        tracker.flow_history = list(data.get("flow_history") or [])
+        tracker.latest_action_name = data.get("latest_action_name")
+        tracker.created_at = data.get("created_at") or tracker.created_at
+        tracker.updated_at = data.get("updated_at") or tracker.updated_at
         return tracker
 
 
