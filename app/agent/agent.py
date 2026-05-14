@@ -11,7 +11,7 @@ from app.dialogue.command_parser import CommandParser
 from app.dialogue.command_processor import CommandProcessor
 from app.dialogue.flow_executor import FlowExecutor
 from app.dialogue.llm_generator import LLMCommandGenerator
-from app.dialogue.prompt_builder import PromptBuilder
+from app.llm.prompts import PromptBuilder
 
 
 def now_iso() -> str:
@@ -54,8 +54,9 @@ class Agent:
         if not llm_ok and self._get_active_flow(tracker) is None:
             self._apply_rule_understanding(tracker, text)
 
-        if self._get_slot_to_collect(tracker) is not None and self._get_active_flow(tracker) is not None:
-            self._set_slot(tracker, self._get_slot_to_collect(tracker), text)
+        slot_to_collect = self._get_slot_to_collect(tracker)
+        if slot_to_collect is not None and self._get_active_flow(tracker) is not None:
+            self._set_slot(tracker, slot_to_collect, text)
             self._set_slot_to_collect(tracker, None)
 
         next_action = self._decide_next_action(tracker)
@@ -69,7 +70,7 @@ class Agent:
 
         result = action.run(tracker) if action else ActionResult(text="系统暂时不可用。")
         for event in result.events:
-            tracker["events"].append(event)
+            tracker.setdefault("events", []).append(event)
 
         return self._final_response(
             tracker=tracker,
@@ -83,90 +84,40 @@ class Agent:
         if not self.llm_generator.enabled:
             return {"handled": False, "reply_text": None, "results": []}
 
-        if self._get_active_flow(tracker) is not None:
-            return {"handled": False, "reply_text": None, "results": []}
-
         flow_ids = sorted(self.flows.keys())
-        prompt = self.prompt_builder.build(message=text, tracker=tracker, flow_ids=flow_ids)
-
         try:
-            llm_result = self.llm_generator.generate(prompt)
+            llm_result = self.llm_generator.generate(tracker, text, flow_ids=flow_ids)
         except Exception as exc:
-            tracker["events"].append({
-                "event": "llm_error",
-                "text": str(exc),
-                "timestamp": now_iso(),
-            })
+            self._add_event(tracker, "llm_error", text=str(exc))
             return {"handled": False, "reply_text": None, "results": []}
 
-        if isinstance(llm_result, dict):
-            raw = str(llm_result.get("raw_output") or "")
-            llm_success = bool(llm_result.get("success"))
-            tracker["events"].append({
-                "event": "llm_result",
-                "text": {
-                    "success": llm_success,
-                    "usage": llm_result.get("usage"),
-                    "latency_ms": llm_result.get("latency_ms"),
-                    "model": llm_result.get("model"),
-                    "error": llm_result.get("error"),
-                },
-                "timestamp": now_iso(),
-            })
-        else:
-            raw = str(llm_result or "")
-            llm_success = bool(raw)
+        self._add_event(
+            tracker,
+            "llm_result",
+            text={
+                "success": bool(llm_result.get("llm_result", {}).get("success")),
+                "usage": llm_result.get("llm_result", {}).get("usage"),
+                "latency_ms": llm_result.get("llm_result", {}).get("latency_ms"),
+                "model": llm_result.get("llm_result", {}).get("model"),
+                "error": llm_result.get("llm_result", {}).get("error"),
+            },
+        )
 
-        tracker["events"].append({
-            "event": "llm_raw",
-            "text": raw,
-            "timestamp": now_iso(),
-        })
+        raw = str(llm_result.get("llm_result", {}).get("raw_output") or "")
+        self._add_event(tracker, "llm_raw", text=raw)
 
-        if not llm_success or not raw.strip():
-            tracker["events"].append({
-                "event": "llm_empty",
-                "text": "",
-                "timestamp": now_iso(),
-            })
+        if not llm_result.get("handled"):
+            if not raw.strip():
+                self._add_event(tracker, "llm_empty", text="")
+            else:
+                self._add_event(tracker, "llm_parse_failed", text=raw[:200])
             return {"handled": False, "reply_text": None, "results": []}
 
-        try:
-            commands = self.command_parser.parse(raw)
-        except Exception as exc:
-            tracker["events"].append({
-                "event": "llm_parse_error",
-                "text": str(exc),
-                "timestamp": now_iso(),
-            })
-            return {"handled": False, "reply_text": None, "results": []}
+        results = llm_result.get("results") or []
+        command_types = [result.get("type") for result in results if isinstance(result, dict)]
+        self._add_event(tracker, "llm_commands", text=str(command_types))
 
-        tracker["events"].append({
-            "event": "llm_commands",
-            "text": str([command.__class__.__name__ for command in commands]),
-            "timestamp": now_iso(),
-        })
-
-        if not commands:
-            tracker["events"].append({
-                "event": "llm_parse_failed",
-                "text": raw[:200],
-                "timestamp": now_iso(),
-            })
-            return {"handled": False, "reply_text": None, "results": []}
-
-        results = self.command_processor.process(tracker, commands)
-        reply_text = None
-        for result in results:
-            if (
-                result.get("type") == "chitchat"
-                and result.get("success") is True
-                and result.get("data", {}).get("text")
-            ):
-                reply_text = result["data"]["text"]
-                break
-
-        return {"handled": True, "reply_text": reply_text, "results": results}
+        return {"handled": True, "reply_text": llm_result.get("reply_text"), "results": results}
 
     def _apply_rule_understanding(self, tracker: Any, text: str) -> None:
         if any(keyword in text for keyword in ("退货", "售后", "退款", "不想要")):
