@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+
 import yaml
 
 
@@ -23,22 +24,28 @@ class FlowLoader:
                     step_id = str(raw_step.get("id", ""))
 
                     if "action" in raw_step:
-                        steps_out.append({
-                            "id": step_id,
-                            "step_type": "action",
-                            "action": str(raw_step.get("action")),
-                        })
+                        steps_out.append(
+                            {
+                                "id": step_id,
+                                "step_type": "action",
+                                "action": str(raw_step.get("action")),
+                            }
+                        )
                     elif "collect" in raw_step:
-                        steps_out.append({
-                            "id": step_id,
-                            "step_type": "collect",
-                            "collect": str(raw_step.get("collect")),
-                        })
+                        steps_out.append(
+                            {
+                                "id": step_id,
+                                "step_type": "collect",
+                                "collect": str(raw_step.get("collect")),
+                            }
+                        )
                     elif "end" in raw_step:
-                        steps_out.append({
-                            "id": step_id,
-                            "step_type": "end",
-                        })
+                        steps_out.append(
+                            {
+                                "id": step_id,
+                                "step_type": "end",
+                            }
+                        )
 
                 flows[flow_id] = {
                     "name": flow_data.get("name", flow_id),
