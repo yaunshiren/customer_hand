@@ -58,7 +58,19 @@ class CommandProcessor:
                 "data": {"flow_id": flow_id},
             }
 
-        self._set_active_flow(tracker, str(flow_id))
+        flow_id = str(flow_id)
+        self._set_active_flow(tracker, flow_id)
+        self._set_flow_status(tracker, "running")
+        self._set_flow_step_index(tracker, 0)
+        self._set_slot_to_collect(tracker, None)
+        self._append_flow_history(
+            tracker,
+            {
+                "flow_name": flow_id,
+                "status": "running",
+                "started_at": self._now(),
+            },
+        )
         self._append_event(
             tracker,
             {
@@ -89,13 +101,16 @@ class CommandProcessor:
                 "data": {"name": name, "value": value},
             }
 
-        self._set_slot(tracker, str(name), value)
+        slot_name = str(name)
+        self._set_slot(tracker, slot_name, value)
+        if slot_name == self._get_slot_to_collect(tracker):
+            self._set_slot_to_collect(tracker, None)
         self._append_event(
             tracker,
             {
                 "event": "command",
                 "command_type": "set_slot",
-                "name": name,
+                "name": slot_name,
                 "value": value,
                 "timestamp": self._now(),
             },
@@ -105,8 +120,8 @@ class CommandProcessor:
         return {
             "type": "set_slot",
             "success": True,
-            "message": f"Slot set: {name}",
-            "data": {"name": name, "value": value},
+            "message": f"Slot set: {slot_name}",
+            "data": {"name": slot_name, "value": value},
         }
 
     def _handle_special_command(self, tracker: Any, command: Any) -> dict[str, Any]:
@@ -206,6 +221,41 @@ class CommandProcessor:
             tracker.updated_at = self._now()
         elif isinstance(tracker, dict):
             tracker["updated_at"] = self._now()
+
+    def _set_flow_status(self, tracker: Any, status: str) -> None:
+        if hasattr(tracker, "flow_status"):
+            tracker.flow_status = status
+            return
+        if isinstance(tracker, dict):
+            tracker["flow_status"] = status
+
+    def _get_slot_to_collect(self, tracker: Any) -> str | None:
+        if hasattr(tracker, "slot_to_collect"):
+            return tracker.slot_to_collect
+        if isinstance(tracker, dict):
+            return tracker.get("slot_to_collect")
+        return None
+
+    def _set_slot_to_collect(self, tracker: Any, slot_name: str | None) -> None:
+        if hasattr(tracker, "slot_to_collect"):
+            tracker.slot_to_collect = slot_name
+            return
+        if isinstance(tracker, dict):
+            tracker["slot_to_collect"] = slot_name
+
+    def _set_flow_step_index(self, tracker: Any, value: int) -> None:
+        if hasattr(tracker, "flow_step_index"):
+            tracker.flow_step_index = int(value)
+            return
+        if isinstance(tracker, dict):
+            tracker["flow_step_index"] = int(value)
+
+    def _append_flow_history(self, tracker: Any, item: dict[str, Any]) -> None:
+        if hasattr(tracker, "flow_history"):
+            tracker.flow_history.append(item)
+            return
+        if isinstance(tracker, dict):
+            tracker.setdefault("flow_history", []).append(item)
 
     def _command_to_dict(self, command: Any) -> dict[str, Any]:
         if isinstance(command, dict):
