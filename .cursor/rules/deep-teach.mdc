@@ -1,0 +1,10 @@
+---
+description: deep-teach 占位（完整协议见 deep-teach-protocol.mdc）
+alwaysApply: false
+---
+
+# 说明
+
+完整 deep-teach 协议已放在 **`deep-teach-protocol.mdc`**（`alwaysApply: true`，对话自动注入）。
+
+本文件可删除；保留仅作目录说明。

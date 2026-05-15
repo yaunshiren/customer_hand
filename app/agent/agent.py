@@ -10,6 +10,7 @@ from app.core.tracker_store import InMemoryTrackerStore
 from app.dialogue.flow_executor import FlowExecutor
 from app.dialogue.llm_generator import LLMCommandGenerator
 from app.llm.prompts import PromptBuilder
+from app.rag.answerer import KnowledgeAnswerer
 
 
 def now_iso() -> str:
@@ -29,6 +30,7 @@ class Agent:
 
         self.prompt_builder = PromptBuilder()
         self.llm_generator = LLMCommandGenerator()
+        self.knowledge_answerer = KnowledgeAnswerer()
 
     def handle_message(self, message: str, sender_id: str) -> list[dict[str, Any]]:
         tracker = self.tracker_store.get_or_create(sender_id)
@@ -43,6 +45,16 @@ class Agent:
                 text=str(llm_result["reply_text"]),
                 action_name="llm_chitchat",
                 metadata={"source": "llm", "command_type": "chitchat"},
+            )
+
+        if self._has_command_type(tracker, "knowledge_answer"):
+            answer = self.knowledge_answerer.answer(text, top_k=3)
+            return self._final_response(
+                tracker=tracker,
+                sender_id=sender_id,
+                text=str(answer.get("answer") or ""),
+                action_name="knowledge_answer",
+                metadata={"source": "rag", "matches": answer.get("matches", []), "used_llm": answer.get("used_llm", False)},
             )
 
         if not llm_result.get("handled") and self._get_active_flow(tracker) is None:
@@ -243,6 +255,12 @@ class Agent:
             tracker.latest_action_name = action_name
         else:
             tracker["latest_action_name"] = action_name
+
+    def _has_command_type(self, tracker: Any, command_type: str) -> bool:
+        for event in reversed(getattr(tracker, "events", []) or tracker.get("events", [])):
+            if isinstance(event, dict) and event.get("event") == "command" and event.get("command_type") == command_type:
+                return True
+        return False
 
     def _add_event(self, tracker: Any, event_type: str, **data: Any) -> None:
         if hasattr(tracker, "events"):
