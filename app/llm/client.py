@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 from openai import OpenAI
+
+from app.utils.telemetry import emit_llm_event
+
+DEFAULT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 @dataclass
@@ -29,7 +34,6 @@ class LLMClient:
         temperature: float = 0.0,
         timeout: float = 30.0,
     ) -> None:
-        load_dotenv()
         self.enabled = enabled
         self.api_key = api_key
         self.base_url = base_url
@@ -40,6 +44,8 @@ class LLMClient:
     @classmethod
     def from_env(cls) -> "LLMClient":
         import os
+
+        load_dotenv(DEFAULT_ENV_FILE)
 
         enabled = os.getenv("LLM_ENABLED", "false").lower() == "true"
         api_key = (
@@ -69,15 +75,29 @@ class LLMClient:
         start_time = time.perf_counter()
 
         if not self.enabled:
-            return self._build_result(
+            result = self._build_result(
                 success=False,
                 raw_output="",
                 latency_ms=self._latency_ms(start_time),
                 error="LLM disabled",
             )
+            emit_llm_event(
+                "completion",
+                model=self.model,
+                success=False,
+                latency_ms=result["latency_ms"],
+                error="LLM disabled",
+            )
+            return result
 
         try:
             client = self._build_client()
+            emit_llm_event(
+                "request",
+                model=self.model,
+                system_len=len(system_prompt),
+                user_len=len(user_prompt),
+            )
             response = client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -88,20 +108,36 @@ class LLMClient:
                 timeout=self.timeout,
             )
             raw_output = response.choices[0].message.content or ""
-            return self._build_result(
+            result = self._build_result(
                 success=True,
                 raw_output=raw_output,
                 usage=self._record_usage(response),
                 latency_ms=self._latency_ms(start_time),
                 error=None,
             )
+            emit_llm_event(
+                "completion",
+                model=self.model,
+                success=True,
+                latency_ms=result["latency_ms"],
+                usage=result["usage"],
+            )
+            return result
         except Exception as exc:
-            return self._build_result(
+            result = self._build_result(
                 success=False,
                 raw_output="",
                 latency_ms=self._latency_ms(start_time),
                 error=self._format_error(exc),
             )
+            emit_llm_event(
+                "completion",
+                model=self.model,
+                success=False,
+                latency_ms=result["latency_ms"],
+                error=result.get("error"),
+            )
+            return result
 
     def _build_client(self) -> OpenAI:
         if not self.api_key:

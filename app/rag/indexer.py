@@ -48,8 +48,20 @@ class SimpleKeywordIndex:
         return matches
 
     def _tokenize(self, text: str) -> list[str]:
+        segments = self._segment_text(text)
+        seen: set[str] = set()
+        out: list[str] = []
+        for segment in segments:
+            for token in self._expand_cjk_bigrams(segment):
+                if len(token) < 2 or token in seen:
+                    continue
+                seen.add(token)
+                out.append(token)
+        return out
+
+    def _segment_text(self, text: str) -> list[str]:
         tokens: list[str] = []
-        current = []
+        current: list[str] = []
         for char in text.lower():
             if char.isalnum() or "\u4e00" <= char <= "\u9fff":
                 current.append(char)
@@ -59,4 +71,15 @@ class SimpleKeywordIndex:
                     current = []
         if current:
             tokens.append("".join(current))
-        return [token for token in tokens if len(token) >= 2]
+        return tokens
+
+    def _expand_cjk_bigrams(self, token: str) -> list[str]:
+        """整段中文会被切成一个词，查询整句与文档子串用二元组做交集，便于中文关键词命中。"""
+        expanded = [token]
+        if len(token) < 2:
+            return expanded
+        if not all("\u4e00" <= c <= "\u9fff" for c in token):
+            return expanded
+        for i in range(len(token) - 1):
+            expanded.append(token[i : i + 2])
+        return expanded

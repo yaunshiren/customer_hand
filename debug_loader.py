@@ -1,13 +1,15 @@
+from pathlib import Path
+
 from app.agent.agent import Agent
 from app.core.tracker_store import InMemoryTrackerStore
 from app.core.flow_loader import FlowLoader
-from pathlib import Path
+from app.settings import settings
 
 
 def build_agent():
     store = InMemoryTrackerStore()
     flows = FlowLoader().load_directory(Path("data/flows"))
-    return Agent(tracker_store=store, flows=flows), store
+    return Agent(tracker_store=store, flows=flows, knowledge_dir=settings.knowledge_dir), store
 
 
 def test_postsale_two_turns():

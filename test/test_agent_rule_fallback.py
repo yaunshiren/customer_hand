@@ -14,7 +14,7 @@ from app.core.tracker_store import InMemoryTrackerStore  # noqa: E402
 def build_agent_with_llm_disabled() -> tuple[Agent, InMemoryTrackerStore]:
     store = InMemoryTrackerStore()
     agent = Agent(tracker_store=store, flows={})
-    agent.llm_generator.enabled = False
+    agent.llm_generator.client.enabled = False
     return agent, store
 
 

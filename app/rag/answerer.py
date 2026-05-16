@@ -5,6 +5,7 @@ from typing import Any
 
 from app.llm.client import LLMClient
 from app.rag.retriever import KnowledgeBaseRetriever, RetrievalResult
+from app.utils.telemetry import emit_rag_event
 
 
 class KnowledgeAnswerer:
@@ -13,6 +14,7 @@ class KnowledgeAnswerer:
         self.llm = LLMClient.from_env()
 
     def answer(self, query: str, top_k: int = 3) -> dict[str, Any]:
+        emit_rag_event("answer.start", top_k=top_k, query_len=len(query))
         retrieval = self.retriever.retrieve(query, top_k=top_k)
         context_blocks = [
             f"来源: {match.chunk.source}\n内容: {match.chunk.text}"
@@ -20,6 +22,7 @@ class KnowledgeAnswerer:
         ]
 
         if not context_blocks:
+            emit_rag_event("answer.end", used_llm=False, reason="no_context", match_count=0)
             return {
                 "answer": "暂时没有找到相关知识，请稍后再试或换个问法。",
                 "matches": [],
@@ -31,12 +34,19 @@ class KnowledgeAnswerer:
         llm_result = self.llm.generate_json(system_prompt=system_prompt, user_prompt=user_prompt)
 
         if not llm_result.get("success") or not llm_result.get("raw_output"):
+            emit_rag_event(
+                "answer.end",
+                used_llm=False,
+                reason="llm_failed",
+                match_count=len(retrieval.matches),
+            )
             return {
                 "answer": self._fallback_answer(retrieval),
                 "matches": self._serialize_matches(retrieval),
                 "used_llm": False,
             }
 
+        emit_rag_event("answer.end", used_llm=True, match_count=len(retrieval.matches))
         return {
             "answer": str(llm_result.get("raw_output") or "").strip(),
             "matches": self._serialize_matches(retrieval),

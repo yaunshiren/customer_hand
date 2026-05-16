@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from app.actions.base import ActionResult
@@ -11,6 +13,9 @@ from app.dialogue.flow_executor import FlowExecutor
 from app.dialogue.llm_generator import LLMCommandGenerator
 from app.llm.prompts import PromptBuilder
 from app.rag.answerer import KnowledgeAnswerer
+from app.utils.telemetry import emit_llm_event
+
+logger = logging.getLogger(__name__)
 
 
 def now_iso() -> str:
@@ -22,6 +27,7 @@ class Agent:
         self,
         tracker_store: InMemoryTrackerStore,
         flows: dict[str, Any] | None = None,
+        knowledge_dir: Path | None = None,
     ) -> None:
         register_builtin_actions()
         self.tracker_store = tracker_store
@@ -30,62 +36,71 @@ class Agent:
 
         self.prompt_builder = PromptBuilder()
         self.llm_generator = LLMCommandGenerator()
-        self.knowledge_answerer = KnowledgeAnswerer()
+        self.knowledge_answerer = KnowledgeAnswerer(docs_dir=knowledge_dir)
 
     def handle_message(self, message: str, sender_id: str) -> list[dict[str, Any]]:
-        tracker = self.tracker_store.get_or_create(sender_id)
         text = message.strip()
-        self._record_user_message(tracker, text)
+        logger.info("agent.start sender_id=%s message_len=%d", sender_id, len(text))
+        try:
+            tracker = self.tracker_store.get_or_create(sender_id)
+            self._record_user_message(tracker, text)
 
-        llm_result = self._try_llm_commands(tracker, text)
-        if llm_result.get("reply_text"):
-            return self._final_response(
-                tracker=tracker,
-                sender_id=sender_id,
-                text=str(llm_result["reply_text"]),
-                action_name="llm_chitchat",
-                metadata={"source": "llm", "command_type": "chitchat"},
-            )
+            llm_result = self._try_llm_commands(tracker, text)
+            if llm_result.get("reply_text"):
+                return self._final_response(
+                    tracker=tracker,
+                    sender_id=sender_id,
+                    text=str(llm_result["reply_text"]),
+                    action_name="llm_chitchat",
+                    metadata={"source": "llm", "command_type": "chitchat"},
+                )
 
-        if self._has_command_type(tracker, "knowledge_answer"):
-            answer = self.knowledge_answerer.answer(text, top_k=3)
-            return self._final_response(
-                tracker=tracker,
-                sender_id=sender_id,
-                text=str(answer.get("answer") or ""),
-                action_name="knowledge_answer",
-                metadata={"source": "rag", "matches": answer.get("matches", []), "used_llm": answer.get("used_llm", False)},
-            )
+            if self._has_command_type(tracker, "knowledge_answer"):
+                rag_query = self._rag_query_for_knowledge_answer(tracker, text)
+                answer = self.knowledge_answerer.answer(rag_query, top_k=3)
+                return self._final_response(
+                    tracker=tracker,
+                    sender_id=sender_id,
+                    text=str(answer.get("answer") or ""),
+                    action_name="knowledge_answer",
+                    metadata={
+                        "source": "rag",
+                        "matches": answer.get("matches", []),
+                        "used_llm": answer.get("used_llm", False),
+                    },
+                )
 
-        if not llm_result.get("handled") and self._get_active_flow(tracker) is None:
-            self._apply_rule_understanding(tracker, text)
+            if not llm_result.get("handled") and self._get_active_flow(tracker) is None:
+                self._apply_rule_understanding(tracker, text)
 
-        slot_to_collect = self._get_slot_to_collect(tracker)
-        if slot_to_collect is not None and self._get_active_flow(tracker) is not None:
-            self._set_slot(tracker, slot_to_collect, text)
-            self._set_slot_to_collect(tracker, None)
+            slot_to_collect = self._get_slot_to_collect(tracker)
+            if slot_to_collect is not None and self._get_active_flow(tracker) is not None:
+                self._set_slot(tracker, slot_to_collect, text)
+                self._set_slot_to_collect(tracker, None)
 
-        next_action = self._decide_next_action(tracker)
-        if next_action == "action_ask_order_id":
-            self._set_slot_to_collect(tracker, "order_id")
-            self._set_flow_status(tracker, "waiting_input")
+            next_action = self._decide_next_action(tracker)
+            if next_action == "action_ask_order_id":
+                self._set_slot_to_collect(tracker, "order_id")
+                self._set_flow_status(tracker, "waiting_input")
 
-        action = get_action(next_action)
-        if action is None:
-            next_action = "action_default_fallback"
             action = get_action(next_action)
+            if action is None:
+                next_action = "action_default_fallback"
+                action = get_action(next_action)
 
-        result = action.run(tracker) if action else ActionResult(text="系统暂时不可用。")
-        for event in result.events:
-            tracker.events.append(event)
+            result = action.run(tracker) if action else ActionResult(text="系统暂时不可用。")
+            for event in result.events:
+                tracker.events.append(event)
 
-        return self._final_response(
-            tracker=tracker,
-            sender_id=sender_id,
-            text=result.text or "",
-            action_name=next_action,
-            metadata=result.metadata,
-        )
+            return self._final_response(
+                tracker=tracker,
+                sender_id=sender_id,
+                text=result.text or "",
+                action_name=next_action,
+                metadata=result.metadata,
+            )
+        finally:
+            logger.info("agent.done sender_id=%s", sender_id)
 
     def _try_llm_commands(self, tracker: Any, text: str) -> dict[str, Any]:
         if not self.llm_generator.enabled:
@@ -95,6 +110,7 @@ class Agent:
         try:
             llm_result = self.llm_generator.generate(tracker, text, flow_ids=flow_ids)
         except Exception as exc:
+            emit_llm_event("command_pipeline.exception", error=str(exc))
             self._add_event(tracker, "llm_error", text=str(exc))
             return {"handled": False, "reply_text": None, "results": []}
 
@@ -261,6 +277,18 @@ class Agent:
             if isinstance(event, dict) and event.get("event") == "command" and event.get("command_type") == command_type:
                 return True
         return False
+
+    def _rag_query_for_knowledge_answer(self, tracker: Any, fallback: str) -> str:
+        """优先用 LLM 命令里的 query 检索；与整句用户输入相比更贴近检索意图。"""
+        for event in reversed(getattr(tracker, "events", []) or tracker.get("events", [])):
+            if not isinstance(event, dict):
+                continue
+            if event.get("event") != "command" or event.get("command_type") != "knowledge_answer":
+                continue
+            data = event.get("data") or {}
+            q = str(data.get("query") or "").strip()
+            return q or fallback
+        return fallback
 
     def _add_event(self, tracker: Any, event_type: str, **data: Any) -> None:
         if hasattr(tracker, "events"):

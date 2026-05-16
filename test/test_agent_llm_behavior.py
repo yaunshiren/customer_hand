@@ -10,6 +10,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from app.agent.agent import Agent  # noqa: E402
 from app.core.tracker_store import InMemoryTrackerStore  # noqa: E402
+from app.dialogue.command_parser import CommandParser  # noqa: E402
+from app.dialogue.command_processor import CommandProcessor  # noqa: E402
+from app.dialogue.llm_generator import DEFAULT_CHITCHAT_REPLY  # noqa: E402
 
 
 class FakeLLMCommandGenerator:
@@ -18,8 +21,8 @@ class FakeLLMCommandGenerator:
     def __init__(self, raw_output: str) -> None:
         self.raw_output = raw_output
 
-    def generate(self, prompt: str) -> dict[str, Any]:
-        return {
+    def generate(self, tracker: Any, text: str, flow_ids: list[str] | None = None) -> dict[str, Any]:
+        llm_result = {
             "success": True,
             "raw_output": self.raw_output,
             "usage": {
@@ -30,6 +33,25 @@ class FakeLLMCommandGenerator:
             "latency_ms": 1,
             "model": "fake-llm",
             "error": None,
+        }
+        raw = self.raw_output.strip()
+        if not raw:
+            return {"handled": False, "reply_text": None, "results": [], "llm_result": llm_result}
+        commands = CommandParser().parse(raw)
+        if not commands:
+            return {"handled": False, "reply_text": None, "results": [], "llm_result": llm_result}
+        results = CommandProcessor().process(tracker, commands)
+        reply_text: str | None = None
+        for result in results:
+            if result.get("type") == "chitchat" and result.get("success") is True:
+                t = str(result.get("data", {}).get("text") or "").strip()
+                reply_text = t or DEFAULT_CHITCHAT_REPLY
+                break
+        return {
+            "handled": True,
+            "reply_text": reply_text,
+            "results": results,
+            "llm_result": llm_result,
         }
 
 

@@ -46,7 +46,9 @@ class CommandPromptBuilder:
                 "- 如果用户问退货规则、退款多久到账、售后条件，输出 knowledge_answer。",
                 "- 如果用户明确提供订单号并要求查询物流，可以输出 call_tool，tool_name 为 get_logistics_info。",
                 "- 如果只是“你好”、“谢谢”、“你是谁”，输出 chitchat。",
-                "- 不确定时输出 chitchat 风格回复，不要编造业务结果。",
+                "- 不确定时输出 chitchat，不要编造业务结果。",
+                "- chitchat 必须包含 text 字段，text 为直接回复用户的自然语言，不能为空。",
+                '- 示例：{"commands":[{"type":"chitchat","text":"您好！有什么可以帮您的吗？"}]}',
             ]
         )
 
@@ -70,10 +72,11 @@ class CommandPromptBuilder:
 
         schema = {
             "commands": [
-                {
-                    "type": "start_flow | set_slot | chitchat | knowledge_answer | call_tool",
-                    "...": "fields depend on type",
-                }
+                {"type": "chitchat", "text": "必填，直接回复用户"},
+                {"type": "start_flow", "flow_id": "postsale | logistics"},
+                {"type": "set_slot", "name": "order_id", "value": "用户提供的值"},
+                {"type": "knowledge_answer", "query": "用户问题", "top_k": 3},
+                {"type": "call_tool", "tool_name": "工具名", "arguments": {}},
             ]
         }
 

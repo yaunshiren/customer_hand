@@ -7,6 +7,7 @@ from typing import Any
 from app.rag.documents import KnowledgeChunk, KnowledgeDocumentLoader
 from app.rag.indexer import RetrievalMatch, SimpleKeywordIndex
 from app.rag.splitter import TextSplitter
+from app.utils.telemetry import emit_rag_event
 
 
 @dataclass
@@ -48,4 +49,11 @@ class KnowledgeBaseRetriever:
             self.build()
 
         matches = self.index.search(query, top_k=top_k)
+        emit_rag_event(
+            "retrieve",
+            top_k=top_k,
+            match_count=len(matches),
+            query_len=len(query),
+            index_ready=self._is_ready,
+        )
         return RetrievalResult(query=query, matches=matches)
