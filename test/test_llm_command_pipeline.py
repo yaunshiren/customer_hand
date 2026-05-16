@@ -11,7 +11,12 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.core.tracker import DialogueStateTracker
 from app.dialogue.command_parser import CommandParser
 from app.dialogue.command_processor import CommandProcessor
-from app.dialogue.prompt_builder import PromptBuilder
+from app.llm.prompts import PromptBuilder
+
+
+def _combined_prompt(tracker: Any, user_message: str) -> str:
+    system, user = PromptBuilder().build(tracker=tracker, user_message=user_message)
+    return f"{system}\n\n{user}"
 
 
 class FakeLLMCommandGenerator:
@@ -36,7 +41,7 @@ class FakeLLMCommandGenerator:
 
 def test_fake_llm_start_flow_and_set_slot_updates_tracker() -> None:
     tracker = DialogueStateTracker("fake_user_postsale")
-    prompt = PromptBuilder().build(tracker, "我要退货")
+    prompt = _combined_prompt(tracker, "我要退货")
     fake_llm = FakeLLMCommandGenerator(
         """
         {"commands":[
@@ -61,7 +66,7 @@ def test_fake_llm_start_flow_and_set_slot_updates_tracker() -> None:
 
 def test_fake_llm_call_tool_command_is_recorded_without_network_or_tool_execution() -> None:
     tracker = DialogueStateTracker("fake_user_tool")
-    prompt = PromptBuilder().build(tracker, "帮我查 A123 的物流")
+    prompt = _combined_prompt(tracker, "帮我查 A123 的物流")
     fake_llm = FakeLLMCommandGenerator(
         """
         好的，命令如下：

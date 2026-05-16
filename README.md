@@ -1,36 +1,57 @@
 # customer_hand
 
-`customer_hand` 是一个学习型 LLM 智能客服项目，目标是通过一个可运行、可测试、可演示的小项目，逐步掌握大模型应用开发工程师需要的后端、LLM、Agent、Tool Calling 和 RAG 能力。
+基于 **FastAPI** 的学习型 **LLM 智能客服** 后端：在保持仓库轻量的前提下，覆盖 **API 契约、会话追踪、YAML Flow、可注册 Action、LLM 结构化命令、关键词 RAG、统一异常与链路 trace** 等简历常见考点。
 
-当前阶段重点是先跑通 FastAPI API、消息收发、会话状态查看和会话重置。后续会继续加入 Tracker 对象化、Action、Flow、LLM Command、Tool Calling 和 RAG。
+更完整的设计说明见 **`docs/`**（阶段 7 沉淀）：
 
-## 当前已完成接口
+| 文档 | 内容 |
+|------|------|
+| [docs/architecture.md](docs/architecture.md) | 分层职责、请求生命周期、与开发计划映射 |
+| [docs/prompt.md](docs/prompt.md) | 命令式 Prompt 与 RAG Prompt 分工 |
+| [docs/rag.md](docs/rag.md) | 加载 / 切分 / 检索 / 生成与演进方向 |
+| [docs/interview_qna.md](docs/interview_qna.md) | 高频面试问答与简历一句话模板 |
 
-- `GET /health`：服务健康检查。
-- `POST /api/messages`：发送用户消息，返回稳定的消息响应结构。
-- `GET /api/tracker/{sender_id}/full`：查看指定用户当前会话状态。
-- `POST /api/tracker/{sender_id}/reset`：重置指定用户会话状态。
+总体规划见仓库内 [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)。
 
-## 项目目录说明
+---
+
+## 功能概览
+
+- **HTTP**：`GET /health`、`POST /api/messages`、`GET/POST /api/tracker/...`、Swagger `GET /docs`、调试页 `GET /inspect`
+- **编排**：`Agent` 串联 LLM 命令、RAG、规则理解、Flow 槽位与 Action
+- **LLM**（可选）：OpenAI 兼容接口（如阿里云百炼），关闭时使用规则与流程兜底
+- **RAG**：`data/knowledge` 下文档 → 切分 → **关键词索引**检索 → 可选 LLM 基于片段作答，响应中带 `matches`
+- **观测**：请求级 `X-Trace-Id`、结构化日志、LLM/RAG 埋点事件
+
+---
+
+## 目录结构（节选）
 
 ```text
 customer_hand/
-  main.py                 FastAPI 入口
+  main.py                 FastAPI 入口与路由
+  DEVELOPMENT_PLAN.md     分阶段开发计划
+  docs/                   架构 / RAG / Prompt / 面试 Q&A
   app/
+    api/                  schemas、异常处理、inspect 模板
     agent/                Agent 主流程
-    core/                 Flow 加载、Tracker 存储
-    dialogue/             Prompt、LLM、命令解析、Flow 执行
-    actions/              后续放 Action 抽象和业务动作
+    actions/              Action 注册与内置动作
+    core/                 Tracker、Flow 加载、日志、trace、异常
+    dialogue/             LLM 命令生成与解析、Flow 执行
+    llm/                  客户端、Prompt 构建
+    rag/                  文档、切分、索引、检索、回答
+    utils/                遥测等工具
   data/
-    flows/                当前 YAML Flow 配置
-  test/                   pytest 测试
-  requirements.txt        最小依赖列表
-  .env.example            环境变量示例
+    flows/                业务流程 YAML
+    knowledge/            RAG 知识文档（.md / .txt）
+  test/                   pytest
+  requirements.txt
+  .env.example
 ```
 
-## 环境准备
+---
 
-在 Windows CMD 或 PowerShell 中进入项目目录：
+## 环境准备
 
 ```cmd
 cd /d D:\code4\llm-universe-main\customer_simple\customer_hand
@@ -38,64 +59,51 @@ conda activate customer
 pip install -r requirements.txt
 ```
 
-## 环境变量说明
-
-复制环境变量示例文件：
+复制环境变量示例：
 
 ```cmd
 copy .env.example .env
 ```
 
-真实 API Key 不要提交到 Git，也不要写入代码或 README。你使用的是阿里云百炼平台 API Key，并且已经在本机环境变量中配置好时，可以不把真实 Key 写入 `.env`。
+**不要**将真实 API Key 写入代码、README 或提交到 Git。密钥放在 `.env` 或系统环境变量中。
 
-当前代码优先读取：
+### 常用变量（与 `.env.example` 一致）
 
-- `DASHSCOPE_API_KEY`
-- `DASHSCOPE_BASE_URL`
-- `QWEN_MODEL`
-- `LLM_ENABLED`
+| 变量 | 说明 |
+|------|------|
+| `DASHSCOPE_API_KEY` / `OPENAI_API_KEY` | 兼容 OpenAI SDK 的密钥 |
+| `DASHSCOPE_BASE_URL` | 如百炼兼容端点 |
+| `QWEN_MODEL` | 模型名，如 `qwen-plus` |
+| `LLM_ENABLED` | `true` / `false`；`false` 时不调用大模型，便于确定性开发与测试 |
+| `KNOWLEDGE_DIR` | 可选，默认 `data/knowledge` |
 
-如果你的本机使用其他变量名，请根据实际配置填写，例如 `BAILIAN_API_KEY` 或 `DASHSCOPE_API_KEY`。当前 demo 即使不启用真实 LLM，也应该能跑通基础 API；如需避免真实 LLM 调用，可保持：
+---
 
-```cmd
-set LLM_ENABLED=false
-```
-
-## 启动服务
+## 启动
 
 ```cmd
 uvicorn main:app --reload
 ```
 
-启动后访问 API 文档：
+浏览器打开：`http://127.0.0.1:8000/docs`
 
-```text
-http://127.0.0.1:8000/docs
+模块方式：
+
+```cmd
+python main.py
 ```
 
-## 第一轮 Demo 操作步骤
+---
 
-### Step 1：检查健康状态
+## API 快速验证
 
-CMD:
+### 健康检查
 
 ```cmd
 curl http://127.0.0.1:8000/health
 ```
 
-预期返回：
-
-```json
-{
-  "status": "ok",
-  "service": "customer_hand",
-  "version": "0.1.0"
-}
-```
-
-### Step 2：发送一条消息
-
-CMD:
+### 发送消息（售后意图示例）
 
 ```cmd
 curl -X POST http://127.0.0.1:8000/api/messages ^
@@ -103,147 +111,60 @@ curl -X POST http://127.0.0.1:8000/api/messages ^
   -d "{\"sender_id\":\"user_001\",\"message\":\"我要退货\"}"
 ```
 
-预期返回是列表结构，每一项至少包含 `recipient_id`、`text`、`timestamp`、`metadata`：
+返回为 **列表**，元素含 `recipient_id`、`text`、`timestamp`、`metadata`（可能含 `source`、`matches` 等）。
 
-```json
-[
-  {
-    "recipient_id": "user_001",
-    "text": "请提供订单号。",
-    "timestamp": "2026-05-08T12:00:00+00:00",
-    "metadata": {}
-  }
-]
-```
-
-实际 `text` 会根据当前 Agent 逻辑变化，但返回结构应保持稳定。
-
-### Step 3：查看 tracker
-
-CMD:
+### 查看 / 重置会话
 
 ```cmd
 curl http://127.0.0.1:8000/api/tracker/user_001/full
-```
-
-可以看到 `user_001` 的当前会话状态，包括用户消息、机器人回复、槽位和当前流程状态。预期结构：
-
-```json
-{
-  "sender_id": "user_001",
-  "exists": true,
-  "tracker": {
-    "sender_id": "user_001",
-    "latest_message": "我要退货",
-    "slots": {},
-    "events": []
-  }
-}
-```
-
-### Step 4：重置 tracker
-
-CMD:
-
-```cmd
 curl -X POST http://127.0.0.1:8000/api/tracker/user_001/reset
 ```
 
-预期返回：
+重置后若会话已删除，再次 `GET .../full` 可能返回 **404**，响应体中带 `trace_id`（与全局异常处理一致）。
 
-```json
-{
-  "sender_id": "user_001",
-  "reset": true,
-  "message": "Tracker reset successfully"
-}
-```
+---
 
-### Step 5：再次查看 tracker
-
-CMD:
+## 测试
 
 ```cmd
-curl http://127.0.0.1:8000/api/tracker/user_001/full
+pytest -q
 ```
 
-当前代码的实际行为是：reset 后该会话被删除，再次查询会返回 HTTP `404`，响应中包含：
-
-```json
-{
-  "detail": "Tracker not found"
-}
-```
-
-## 推荐演示问题
-
-当前阶段可以用这些问题测试基础消息链路：
-
-- `我要退货`
-- `查物流`
-- `你好`
-- `我的订单到了吗`
-- `帮我看看售后怎么处理`
-
-注意：当前项目还处在最小可用 API demo 阶段，回复可能是规则回复或最小可用回复。
-
-## 运行测试
+或指定文件：
 
 ```cmd
 pytest test/test_api_basic.py -v
 ```
 
-当前测试覆盖：
+---
 
-- `GET /health`
-- `POST /api/messages`
-- `POST /api/tracker/{sender_id}/reset`
-- reset 后再次查询 tracker 返回 404
+## 演示问题建议
 
-## 当前项目边界
+- 流程类：`我要退货`、`查物流`（配合后续提供订单号）
+- 知识类（需 **`LLM_ENABLED=true`** 且模型输出 `knowledge_answer` 命令）：`退货规则`、`退款多久到账`
+- 寒暄：`你好`
 
-当前项目还不是完整智能客服：
+---
 
-- 当前 LLM、Action、Flow、RAG 还在后续开发中。
-- 当前回复可能是最小可用回复或规则回复。
-- 当前 README 主要用于跑通第一轮 API demo。
-- 当前重点是保证 API 结构稳定、会话可查看、会话可重置。
+## 简历描述（可直接改编）
 
-## 后续计划
+> 独立设计并实现电商场景智能客服后端（FastAPI）：会话状态追踪与 YAML 流程编排、可扩展 Action；通过 **LLM 输出结构化 JSON 命令** 驱动流程与 RAG，失败时降级为规则路径；实现关键词知识检索与带引用回答、统一 **trace_id** 与异常响应；pytest 覆盖核心 API 与编排逻辑。
 
-- Day 6-8：实现 `DialogueStateTracker`，让会话状态从裸字典逐步对象化。
-- Day 9-14：实现 Action + Flow 闭环，把硬编码回复迁移到 Action。
-- Day 15-20：接入 LLM Command，让 LLM 输出受约束命令，再由程序执行。
-- Day 21-25：完善 API 和 inspect 页面，让状态、命令、流程变化可视化。
-- Day 26-36：实现业务 Action + Tool Calling，体现 Agent 工具调用能力。
-- Day 37-40：实现最小可用 RAG MVP，补充知识库问答能力。
+---
 
 ## 常见问题
 
-### conda 环境未激活
+**conda / Python 版本不对**  
+先 `conda activate customer`，保证 Python 3.10+。
 
-如果提示找不到依赖或 Python 版本不对，先执行：
-
-```cmd
-conda activate customer
-```
-
-### 依赖未安装
-
-执行：
-
-```cmd
-pip install -r requirements.txt
-```
-
-### 端口被占用
-
-默认端口是 `8000`。如果被占用，可以换端口：
+**端口占用**  
 
 ```cmd
 uvicorn main:app --reload --port 8001
 ```
 
-### API Key 不要写入代码
+**依赖报错**  
+执行 `pip install -r requirements.txt`；若缺少 `pydantic-settings`，可 `pip install pydantic-settings`（部分环境需显式安装）。
 
-不要把真实 API Key 写入 Python 文件、README 或提交到 Git。真实密钥应放在系统环境变量或本地 `.env` 文件中，并确保 `.env` 已被 `.gitignore` 忽略。
+**LLM 不想联网**  
+设置 `LLM_ENABLED=false`，依赖规则与 Flow 仍可演示主链路。
