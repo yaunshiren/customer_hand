@@ -90,3 +90,35 @@ def test_llm_start_flow_postsale_asks_order_id() -> None:
     assert tracker.active_flow == "postsale"
     assert "订单号" in response[0]["text"]
     assert tracker.get("latest_action_name") == "action_ask_order_id"
+
+
+class FakeLLMCommandGeneratorByMessage:
+    enabled = True
+
+    def __init__(self, outputs_by_message: dict[str, str]) -> None:
+        self.outputs_by_message = outputs_by_message
+
+    def generate(self, tracker: Any, text: str, flow_ids: list[str] | None = None) -> dict[str, Any]:
+        raw_output = self.outputs_by_message.get(text.strip(), "")
+        return FakeLLMCommandGenerator(raw_output).generate(tracker, text, flow_ids=flow_ids)
+
+
+def test_start_flow_after_knowledge_answer_does_not_repeat_rag() -> None:
+    """回归：上一轮 knowledge_answer 不应污染本轮 start_flow。"""
+    store = InMemoryTrackerStore()
+    agent = Agent(tracker_store=store, flows={})
+    agent.llm_generator = FakeLLMCommandGeneratorByMessage(
+        {
+            "退货规则是什么": '{"commands":[{"type":"knowledge_answer","query":"退货规则是什么","top_k":3}]}',
+            "我要退货": '{"commands":[{"type":"start_flow","flow_id":"postsale"}]}',
+        }
+    )
+
+    agent.handle_message("退货规则是什么", "regression_user")
+    response = agent.handle_message("我要退货", "regression_user")
+    tracker = store.retrieve("regression_user")
+
+    assert tracker is not None
+    assert tracker.active_flow == "postsale"
+    assert "订单号" in response[0]["text"]
+    assert tracker.get("latest_action_name") == "action_ask_order_id"

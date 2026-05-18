@@ -46,6 +46,7 @@ class Agent:
             self._record_user_message(tracker, text)
 
             llm_result = self._try_llm_commands(tracker, text)
+            llm_results = llm_result.get("results") or []
             if llm_result.get("reply_text"):
                 return self._final_response(
                     tracker=tracker,
@@ -55,8 +56,8 @@ class Agent:
                     metadata={"source": "llm", "command_type": "chitchat"},
                 )
 
-            if self._has_command_type(tracker, "knowledge_answer"):
-                rag_query = self._rag_query_for_knowledge_answer(tracker, text)
+            if self._has_command_in_results(llm_results, "knowledge_answer"):
+                rag_query = self._rag_query_from_results(llm_results, text)
                 answer = self.knowledge_answerer.answer(rag_query, top_k=3)
                 return self._final_response(
                     tracker=tracker,
@@ -272,20 +273,18 @@ class Agent:
         else:
             tracker["latest_action_name"] = action_name
 
-    def _has_command_type(self, tracker: Any, command_type: str) -> bool:
-        for event in reversed(getattr(tracker, "events", []) or tracker.get("events", [])):
-            if isinstance(event, dict) and event.get("event") == "command" and event.get("command_type") == command_type:
-                return True
-        return False
+    def _has_command_in_results(self, results: list[dict[str, Any]], command_type: str) -> bool:
+        return any(
+            isinstance(result, dict) and result.get("type") == command_type
+            for result in results
+        )
 
-    def _rag_query_for_knowledge_answer(self, tracker: Any, fallback: str) -> str:
-        """优先用 LLM 命令里的 query 检索；与整句用户输入相比更贴近检索意图。"""
-        for event in reversed(getattr(tracker, "events", []) or tracker.get("events", [])):
-            if not isinstance(event, dict):
+    def _rag_query_from_results(self, results: list[dict[str, Any]], fallback: str) -> str:
+        """优先用本轮 LLM 命令里的 query 检索；与整句用户输入相比更贴近检索意图。"""
+        for result in results:
+            if not isinstance(result, dict) or result.get("type") != "knowledge_answer":
                 continue
-            if event.get("event") != "command" or event.get("command_type") != "knowledge_answer":
-                continue
-            data = event.get("data") or {}
+            data = result.get("data") or {}
             q = str(data.get("query") or "").strip()
             return q or fallback
         return fallback
