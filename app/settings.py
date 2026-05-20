@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     llm_enabled: bool = Field(default=False)
     flow_dir: Path = Field(default=DEFAULT_FLOW_DIR)
     knowledge_dir: Path = Field(default=DEFAULT_KNOWLEDGE_DIR)
+    rag_backend: str = Field(default="keyword")
+    chroma_persist_dir: Path = Field(default=PROJECT_ROOT / "data" / "chroma")
+    embedding_model: str = Field(default="text-embedding-v4")
+    embedding_dimensions: int = Field(default=1024)
+    embedding_enabled: bool = Field(default=True)
+    rag_top_k: int = Field(default=3)
+    rag_score_threshold: float = Field(default=0.45)
+    
     cors_origins: list[str] = Field(
         default_factory=lambda: [
             "http://127.0.0.1:8000",
@@ -33,7 +41,7 @@ class Settings(BaseSettings):
     )
     log_level: str = Field(default="INFO")
 
-    @field_validator("flow_dir", "knowledge_dir", mode="after")
+    @field_validator("flow_dir", "knowledge_dir", "chroma_persist_dir", mode="after")
     @classmethod
     def _resolve_data_paths(cls, v: Path) -> Path:
         """避免 uvicorn 启动目录不在项目根时，相对路径指向错误目录。"""

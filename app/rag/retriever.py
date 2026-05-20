@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Protocol
 
 from app.rag.documents import KnowledgeChunk, KnowledgeDocumentLoader
 from app.rag.indexer import RetrievalMatch, SimpleKeywordIndex
 from app.rag.splitter import TextSplitter
+from app.settings import settings
 from app.utils.telemetry import emit_rag_event
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -20,9 +24,25 @@ class RetrievalResult:
         return bool(self.matches)
 
 
-class KnowledgeBaseRetriever:
+class _RetrieverBackend(Protocol):
+    def retrieve(self, query: str, top_k: int = 3) -> RetrievalResult: ...
+
+
+def normalize_rag_backend(backend: str | None = None) -> str:
+    value = (backend if backend is not None else settings.rag_backend).strip().lower()
+    if value in {"chroma", "vector"}:
+        return "chroma"
+    if value in {"keyword", "keywords", "lexical"}:
+        return "keyword"
+    logger.warning("Unknown RAG_BACKEND=%s, fallback to keyword", value)
+    return "keyword"
+
+
+class KeywordKnowledgeRetriever:
+    """关键词检索：加载 data/knowledge，内存倒排索引。"""
+
     def __init__(self, docs_dir: Path | None = None) -> None:
-        self.docs_dir = docs_dir
+        self.docs_dir = docs_dir if docs_dir is not None else settings.knowledge_dir
         self.loader = KnowledgeDocumentLoader()
         self.splitter = TextSplitter()
         self.index = SimpleKeywordIndex()
@@ -31,10 +51,6 @@ class KnowledgeBaseRetriever:
     def build(self, docs_dir: Path | None = None) -> None:
         if docs_dir is not None:
             self.docs_dir = docs_dir
-
-        if self.docs_dir is None:
-            self._is_ready = False
-            return
 
         documents = self.loader.load_directory(self.docs_dir)
         chunks: list[KnowledgeChunk] = []
@@ -49,11 +65,35 @@ class KnowledgeBaseRetriever:
             self.build()
 
         matches = self.index.search(query, top_k=top_k)
+        return RetrievalResult(query=query, matches=matches)
+
+
+class KnowledgeBaseRetriever:
+    """统一检索入口：按 settings.rag_backend 选择关键词或 Chroma 向量检索。"""
+
+    def __init__(self, docs_dir: Path | None = None, backend: str | None = None) -> None:
+        self.backend = normalize_rag_backend(backend)
+        self._impl: _RetrieverBackend = self._create_backend(docs_dir)
+
+    def _create_backend(self, docs_dir: Path | None) -> _RetrieverBackend:
+        if self.backend == "chroma":
+            from app.rag.vector_retriever import VectorKnowledgeRetriever
+
+            return VectorKnowledgeRetriever()
+        return KeywordKnowledgeRetriever(docs_dir=docs_dir)
+
+    def build(self, docs_dir: Path | None = None) -> None:
+        if isinstance(self._impl, KeywordKnowledgeRetriever):
+            self._impl.build(docs_dir)
+
+    def retrieve(self, query: str, top_k: int | None = None) -> RetrievalResult:
+        effective_top_k = top_k if top_k is not None else settings.rag_top_k
+        result = self._impl.retrieve(query, top_k=effective_top_k)
         emit_rag_event(
             "retrieve",
-            top_k=top_k,
-            match_count=len(matches),
-            query_len=len(query),
-            index_ready=self._is_ready,
+            backend=self.backend,
+            top_k=effective_top_k,
+            match_count=len(result.matches),
+            query_len=len(query.strip()),
         )
-        return RetrievalResult(query=query, matches=matches)
+        return result

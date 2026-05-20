@@ -13,3 +13,6 @@ ENV/
 
 # Local environment secrets
 .env
+.env
+data/chroma/
+data/chroma_smoke/

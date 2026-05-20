@@ -18,6 +18,8 @@ from app.core.flow_loader import FlowLoader
 from app.core.logging import configure_logging
 from app.core.trace import new_trace_id, run_with_trace, trace_id_from_request, trace_scope
 from app.core.tracker_store import InMemoryTrackerStore
+from app.rag.reindex import get_index_status, rebuild_index
+from app.rag.retriever import normalize_rag_backend
 from app.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -139,6 +141,27 @@ def create_app() -> FastAPI:
                     else "Tracker did not exist"
                 ),
             }
+
+    @app.get("/api/knowledge/status")
+    async def knowledge_status(request: Request):
+        with trace_scope(trace_id_from_request(request)):
+            status = get_index_status()
+            status["rag_backend"] = settings.rag_backend
+            return status
+
+    @app.post("/api/knowledge/reindex")
+    async def knowledge_reindex(request: Request):
+        with trace_scope(trace_id_from_request(request)):
+            if normalize_rag_backend(settings.rag_backend) != "chroma":
+                raise BadRequestError(
+                    "RAG_BACKEND must be chroma to rebuild vector index. "
+                    "Set RAG_BACKEND=chroma in .env and restart."
+                )
+
+            def run_reindex() -> dict[str, object]:
+                return rebuild_index()
+
+            return await run_with_trace(request, run_reindex)
 
     return app
 

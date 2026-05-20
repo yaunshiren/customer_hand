@@ -5,6 +5,7 @@ from typing import Any
 
 from app.llm.client import LLMClient
 from app.rag.retriever import KnowledgeBaseRetriever, RetrievalResult
+from app.settings import settings
 from app.utils.telemetry import emit_rag_event
 
 
@@ -72,6 +73,7 @@ class KnowledgeAnswerer:
         return "暂时没有找到相关知识，请稍后再试或换个问法。"
 
     def _serialize_matches(self, retrieval: RetrievalResult) -> list[dict[str, Any]]:
+        backend = getattr(self.retriever, "backend", settings.rag_backend)
         return [
             {
                 "chunk_id": match.chunk.chunk_id,
@@ -79,6 +81,7 @@ class KnowledgeAnswerer:
                 "score": match.score,
                 "text": match.chunk.text,
                 "metadata": dict(match.chunk.metadata),
+                "rag_backend": backend,
             }
             for match in retrieval.matches
         ]
