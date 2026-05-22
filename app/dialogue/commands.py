@@ -96,6 +96,30 @@ class KnowledgeAnswerCommand(BaseCommand):
 
 
 @dataclass
+class TicketCommand(BaseCommand):
+    text: str = ""
+    reason: str | None = None
+    priority: str | None = None
+    category: str | None = None
+
+    @property
+    def type(self) -> str:
+        return "ticket"
+
+    def to_dict(self) -> dict[str, Any]:
+        data = super().to_dict()
+        data.update(
+            {
+                "text": self.text,
+                "reason": self.reason,
+                "priority": self.priority,
+                "category": self.category,
+            }
+        )
+        return data
+
+
+@dataclass
 class CallToolCommand(BaseCommand):
     tool_name: str = ""
     arguments: dict[str, Any] = field(default_factory=dict)

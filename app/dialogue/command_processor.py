@@ -23,7 +23,7 @@ class CommandProcessor:
                 results.append(self._handle_start_flow(tracker, command))
             elif command_type == "set_slot":
                 results.append(self._handle_set_slot(tracker, command))
-            elif command_type in {"chitchat", "knowledge_answer", "call_tool"}:
+            elif command_type in {"chitchat", "knowledge_answer", "call_tool", "ticket"}:
                 results.append(self._handle_special_command(tracker, command))
             else:
                 result = {
@@ -145,6 +145,14 @@ class CommandProcessor:
                 "arguments": arguments if isinstance(arguments, dict) else {},
             }
             message = "Tool call command recorded"
+        elif command_type == "ticket":
+            data = {
+                "text": self._get_command_value(command, "text", ""),
+                "reason": self._get_command_value(command, "reason", None),
+                "priority": self._get_command_value(command, "priority", None),
+                "category": self._get_command_value(command, "category", None),
+            }
+            message = "Ticket command recorded"
         else:
             data = self._command_to_dict(command)
             message = f"Unknown special command: {command_type}"

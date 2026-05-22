@@ -13,6 +13,7 @@ from app.dialogue.flow_executor import FlowExecutor
 from app.dialogue.llm_generator import LLMCommandGenerator
 from app.llm.prompts import PromptBuilder
 from app.rag.answerer import KnowledgeAnswerer
+from app.tickets import TicketService
 from app.utils.telemetry import emit_llm_event
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ class Agent:
         tracker_store: InMemoryTrackerStore,
         flows: dict[str, Any] | None = None,
         knowledge_dir: Path | None = None,
+        ticket_service: TicketService | None = None,
     ) -> None:
         register_builtin_actions()
         self.tracker_store = tracker_store
@@ -37,6 +39,7 @@ class Agent:
         self.prompt_builder = PromptBuilder()
         self.llm_generator = LLMCommandGenerator()
         self.knowledge_answerer = KnowledgeAnswerer(docs_dir=knowledge_dir)
+        self.ticket_service = ticket_service or TicketService()
 
     def handle_message(self, message: str, sender_id: str) -> list[dict[str, Any]]:
         text = message.strip()
@@ -47,6 +50,33 @@ class Agent:
 
             llm_result = self._try_llm_commands(tracker, text)
             llm_results = llm_result.get("results") or []
+
+            if self._has_command_in_results(llm_results, "ticket"):
+                ticket_command = self._first_command_by_type(llm_results, "ticket")
+                ticket_data = ticket_command.get("data") if isinstance(ticket_command, dict) else {}
+                ticket = self.ticket_service.create_ticket(
+                    sender_id=sender_id,
+                    text=str((ticket_data or {}).get("text") or text),
+                    metadata={"source": "ticket"},
+                    title=(ticket_data or {}).get("title"),
+                    summary=(ticket_data or {}).get("summary"),
+                    category=(ticket_data or {}).get("category"),
+                    priority=(ticket_data or {}).get("priority"),
+                    suggestion=(ticket_data or {}).get("suggestion"),
+                )
+                return self._final_response(
+                    tracker=tracker,
+                    sender_id=sender_id,
+                    text="这个问题需要人工进一步确认，我已经帮你生成工单，客服会根据订单信息继续处理。",
+                    action_name="ticket_create",
+                    metadata={
+                        "source": "ticket",
+                        "ticket_id": ticket.ticket_id,
+                        "category": ticket.category,
+                        "priority": ticket.priority,
+                    },
+                )
+
             if llm_result.get("reply_text"):
                 return self._final_response(
                     tracker=tracker,
@@ -279,8 +309,13 @@ class Agent:
             for result in results
         )
 
+    def _first_command_by_type(self, results: list[dict[str, Any]], command_type: str) -> dict[str, Any] | None:
+        for result in results:
+            if isinstance(result, dict) and result.get("type") == command_type:
+                return result
+        return None
+
     def _rag_query_from_results(self, results: list[dict[str, Any]], fallback: str) -> str:
-        """优先用本轮 LLM 命令里的 query 检索；与整句用户输入相比更贴近检索意图。"""
         for result in results:
             if not isinstance(result, dict) or result.get("type") != "knowledge_answer":
                 continue

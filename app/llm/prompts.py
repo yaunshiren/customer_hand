@@ -37,7 +37,7 @@ class CommandPromptBuilder:
                 "- commands 必须是 list。",
                 "- 每个 command 必须有 type 字段。",
                 "",
-                "可用命令类型：start_flow / set_slot / chitchat / knowledge_answer / call_tool",
+                "可用命令类型：start_flow / set_slot / chitchat / knowledge_answer / call_tool / ticket",
                 "",
                 "默认决策规则：",
                 "- 用户想退货、退款、售后时，优先输出 start_flow，flow_id 为 postsale。",
@@ -45,10 +45,16 @@ class CommandPromptBuilder:
                 "- 如果当前 active_flow 是 postsale 或 logistics，且用户输入像订单号，则输出 set_slot，name 为 order_id。",
                 "- 如果用户问退货规则、退款多久到账、售后条件，输出 knowledge_answer。",
                 "- 如果用户明确提供订单号并要求查询物流，可以输出 call_tool，tool_name 为 get_logistics_info。",
+                "- 只有在明确需要人工介入时，才输出 ticket；不要因为普通售前、订单、物流、售后问题就直接输出 ticket。",
+                "- 触发 ticket 的典型场景：用户明确要求人工、反复表示没解决、知识库低置信度或无法回答、关键信息缺失导致流程卡住。",
+                "- ticket 必须包含 text 字段，优先填写用户原话；如果原话过长，可以保留最关键的一句归纳。",
+                "- ticket 最好同时包含 reason 字段，说明为什么要转工单，例如 need_human / unresolved / low_confidence / missing_info。",
+                "- 如果当前能继续通过 start_flow、set_slot、knowledge_answer 或 call_tool 处理，不要输出 ticket。",
                 "- 如果只是“你好”、“谢谢”、“你是谁”，输出 chitchat。",
-                "- 不确定时输出 chitchat，不要编造业务结果。",
+                "- 不确定时优先输出 knowledge_answer 或 chitchat，不要编造业务结果，也不要过早转 ticket。",
+                "- 如果输出 ticket，尽量不要同时输出其他业务命令，避免一边转工单一边继续执行自动流程。",
                 "- chitchat 必须包含 text 字段，text 为直接回复用户的自然语言，不能为空。",
-                '- 示例：{"commands":[{"type":"chitchat","text":"您好！有什么可以帮您的吗？"}]}',
+                '- 示例：{"commands":[{"type":"ticket","text":"用户想退货但缺少订单号","reason":"missing_info"}]}',
             ]
         )
 
@@ -77,6 +83,7 @@ class CommandPromptBuilder:
                 {"type": "set_slot", "name": "order_id", "value": "用户提供的值"},
                 {"type": "knowledge_answer", "query": "用户问题", "top_k": 3},
                 {"type": "call_tool", "tool_name": "工具名", "arguments": {}},
+                {"type": "ticket", "text": "用户问题原文", "reason": "low_confidence | need_human | missing_info | unresolved"},
             ]
         }
 

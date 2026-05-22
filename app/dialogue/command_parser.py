@@ -11,6 +11,7 @@ from app.dialogue.commands import (
     KnowledgeAnswerCommand,
     SetSlotCommand,
     StartFlowCommand,
+    TicketCommand,
 )
 
 
@@ -86,7 +87,15 @@ class CommandParser:
                 raw=item,
             )
 
-        # Keep unknown commands as raw dicts so later stages can log/debug them.
+        if command_type == "ticket":
+            return TicketCommand(
+                text=str(item.get("text", "")),
+                reason=str(item.get("reason", "")) if item.get("reason") is not None else None,
+                priority=str(item.get("priority", "")) if item.get("priority") is not None else None,
+                category=str(item.get("category", "")) if item.get("category") is not None else None,
+                raw=item,
+            )
+
         return dict(item)
 
     def _json_candidates(self, text: str) -> list[str]:
