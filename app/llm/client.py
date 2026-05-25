@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 from dotenv import load_dotenv
 from openai import OpenAI
 
 from app.utils.telemetry import emit_llm_event
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
@@ -54,6 +60,15 @@ class LLMClient:
             or os.getenv("OPENAI_API_KEY")
             or ""
         )
+        logger.info(
+            "llm.env_check enabled=%s dashscope_present=%s dashscope_len=%s dashscope_prefix=%s dashscope_suffix=%s dashscope_sha8=%s",
+            enabled,
+            bool(os.getenv("DASHSCOPE_API_KEY")),
+            len(os.getenv("DASHSCOPE_API_KEY") or "") or 0,
+            cls._mask_edge(os.getenv("DASHSCOPE_API_KEY"), head=4),
+            cls._mask_edge(os.getenv("DASHSCOPE_API_KEY"), tail=4),
+            cls._sha8(os.getenv("DASHSCOPE_API_KEY")),
+        )
         base_url = (
             os.getenv("DASHSCOPE_BASE_URL")
             or os.getenv("BAILIAN_BASE_URL")
@@ -91,6 +106,7 @@ class LLMClient:
             return result
 
         try:
+            self._direct_httpx_smoke_test()
             client = self._build_client()
             emit_llm_event(
                 "request",
@@ -142,7 +158,41 @@ class LLMClient:
     def _build_client(self) -> OpenAI:
         if not self.api_key:
             raise ValueError("Missing DASHSCOPE_API_KEY or BAILIAN_API_KEY")
+        logger.info(
+            "llm.client_config model=%s base_url=%s api_key_len=%d api_key_prefix=%s api_key_suffix=%s api_key_sha8=%s",
+            self.model,
+            self.base_url,
+            len(self.api_key),
+            self._mask_edge(self.api_key, head=4),
+            self._mask_edge(self.api_key, tail=4),
+            self._sha8(self.api_key),
+        )
         return OpenAI(api_key=self.api_key, base_url=self.base_url)
+
+    def _direct_httpx_smoke_test(self) -> None:
+        url = f"{self.base_url.rstrip('/')}/chat/completions"
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": "smoke test"},
+                {"role": "user", "content": "ping"},
+            ],
+            "temperature": 0,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.post(url, headers=headers, json=payload)
+            logger.info(
+                "llm.httpx_smoke status=%s response_text=%s",
+                response.status_code,
+                response.text[:500],
+            )
+        except Exception as exc:
+            logger.info("llm.httpx_smoke_failed error=%s", self._format_error(exc))
 
     def _record_usage(self, response: Any) -> dict[str, int]:
         usage = getattr(response, "usage", None)
@@ -177,6 +227,22 @@ class LLMClient:
 
     def _latency_ms(self, start_time: float) -> int:
         return int((time.perf_counter() - start_time) * 1000)
+
+    @staticmethod
+    def _mask_edge(value: str | None, *, head: int = 0, tail: int = 0) -> str:
+        text = value or ""
+        if not text:
+            return ""
+        if len(text) <= head + tail:
+            return "*" * len(text)
+        return f"{text[:head]}...{text[-tail:]}"
+
+    @staticmethod
+    def _sha8(value: str | None) -> str:
+        text = value or ""
+        if not text:
+            return ""
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
 
     def _format_error(self, exc: Exception) -> str:
         message = str(exc)

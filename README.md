@@ -81,6 +81,8 @@ copy .env.example .env
 
 ## 启动
 
+本地开发：
+
 ```cmd
 uvicorn main:app --reload
 ```
@@ -92,6 +94,28 @@ uvicorn main:app --reload
 ```cmd
 python main.py
 ```
+
+### Docker 启动
+
+先复制环境变量文件：
+
+```cmd
+copy .env.example .env
+```
+
+然后启动容器：
+
+```cmd
+docker compose up --build
+```
+
+启动后访问：`http://127.0.0.1:8000/docs`
+
+说明：
+
+- `docker-compose.yml` 只启动一个 `api` 服务，适合本地演示与面试展示
+- `./data` 会挂载到容器内的 `/app/data`，用于持久化知识库索引和业务数据
+- 配置仍然通过 `.env` 注入，避免把真实密钥写进镜像
 
 ---
 
