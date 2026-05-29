@@ -18,6 +18,14 @@ class AgentState(TypedDict, total=False):
     tracker: Any
     tracker_store: Any
 
+    # Runtime dependencies injected by Agent.
+    flows: dict[str, Any]
+    llm_generator: Any
+    command_processor: Any
+    command_parser: Any
+    knowledge_answerer: Any
+    ticket_service: Any
+
     # LLM understanding outputs.
     llm_result: dict[str, Any]
     llm_results: list[dict[str, Any]]

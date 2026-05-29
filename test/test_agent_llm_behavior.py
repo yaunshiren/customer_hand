@@ -75,6 +75,9 @@ def test_llm_chitchat_returns_direct_reply() -> None:
     assert response[0]["text"]
     assert tracker is not None
     assert tracker.latest_bot_message is not None
+    command_events = [event for event in tracker.events if event.get("event") == "command"]
+    assert len(command_events) == 1
+    assert command_events[0].get("data", {}).get("text") == reply_text
 
 
 def test_llm_start_flow_postsale_asks_order_id() -> None:
@@ -121,3 +124,69 @@ def test_start_flow_after_knowledge_answer_does_not_repeat_rag() -> None:
     assert len(response) == 1
     assert response[0]["text"]
     assert tracker.latest_action_name is not None
+
+
+def test_chitchat_during_active_flow_does_not_fill_order_id() -> None:
+    store = InMemoryTrackerStore()
+    agent = Agent(tracker_store=store, flows={})
+    agent.llm_generator = FakeLLMCommandGeneratorByMessage(
+        {
+            "return item": '{"commands":[{"type":"start_flow","flow_id":"postsale"}]}',
+            "what products are available": (
+                '{"commands":[{"type":"chitchat","text":"We sell home goods."}]}'
+            ),
+        }
+    )
+
+    agent.handle_message("return item", "side_question_user")
+    response = agent.handle_message("what products are available", "side_question_user")
+    tracker = store.retrieve("side_question_user")
+
+    assert tracker is not None
+    assert response[0]["text"] == "We sell home goods."
+    assert tracker.get_slot("order_id") is None
+    assert tracker.active_flow == "postsale"
+    assert tracker.slot_to_collect == "order_id"
+
+
+def test_active_flow_rejects_invalid_order_id_text_when_llm_unhandled() -> None:
+    store = InMemoryTrackerStore()
+    agent = Agent(tracker_store=store, flows={})
+    agent.llm_generator = FakeLLMCommandGeneratorByMessage(
+        {
+            "return item": '{"commands":[{"type":"start_flow","flow_id":"postsale"}]}',
+            "what products are available": "",
+        }
+    )
+
+    agent.handle_message("return item", "invalid_slot_user")
+    response = agent.handle_message("what products are available", "invalid_slot_user")
+    tracker = store.retrieve("invalid_slot_user")
+
+    assert tracker is not None
+    assert response[0]["text"]
+    assert tracker.get_slot("order_id") is None
+    assert tracker.active_flow == "postsale"
+    assert tracker.slot_to_collect == "order_id"
+
+
+def test_postsale_flow_finishes_after_confirming_order_id() -> None:
+    store = InMemoryTrackerStore()
+    agent = Agent(tracker_store=store, flows={})
+    agent.llm_generator = FakeLLMCommandGeneratorByMessage(
+        {
+            "return item": '{"commands":[{"type":"start_flow","flow_id":"postsale"}]}',
+            "A1234": '{"commands":[{"type":"set_slot","name":"order_id","value":"A1234"}]}',
+        }
+    )
+
+    agent.handle_message("return item", "finish_flow_user")
+    response = agent.handle_message("A1234", "finish_flow_user")
+    tracker = store.retrieve("finish_flow_user")
+
+    assert tracker is not None
+    assert response[0]["text"]
+    assert tracker.get_slot("order_id") == "A1234"
+    assert tracker.active_flow is None
+    assert tracker.flow_status == "idle"
+    assert tracker.slot_to_collect is None

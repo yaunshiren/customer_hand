@@ -80,3 +80,14 @@ def test_multi_user_isolated():
     assert tracker_b.get_slot("order_id") == "B222"
     assert tracker_a.active_flow == "postsale"
     assert tracker_b.active_flow == "logistics"
+
+
+def test_flow_executor_does_not_treat_plain_english_as_order_id():
+    executor = FlowExecutor()
+    tracker = DialogueStateTracker("user_plain_english")
+
+    tracker.active_flow = "postsale"
+    action_name = executor.decide_next_action(tracker, "what products are available")
+
+    assert action_name == "action_default_fallback"
+    assert tracker.get_slot("order_id") is None

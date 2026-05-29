@@ -19,7 +19,7 @@ from app.core.logging import configure_logging
 from app.core.trace import new_trace_id, run_with_trace, trace_id_from_request, trace_scope
 from app.core.tracker_store import InMemoryTrackerStore
 from app.rag.reindex import get_index_status, rebuild_index
-from app.rag.retriever import normalize_rag_backend
+from app.rag.retriever import KnowledgeBaseRetriever, normalize_rag_backend
 from app.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,7 @@ def create_app() -> FastAPI:
     agent = Agent(tracker_store=store, flows=flows, knowledge_dir=settings.knowledge_dir)
 
     app = FastAPI(title=SERVICE_NAME, version=VERSION, lifespan=app_lifespan)
+    app.state.kb_retriever = agent.knowledge_answerer.retriever
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -114,6 +115,70 @@ def create_app() -> FastAPI:
 
             logger.info("api.messages.done sender_id=%s replies=%d", req.sender_id, len(responses))
             return responses
+
+    @app.get("/api/eval/rag")
+    async def eval_rag(request: Request, question: str, top_k: int = 5):
+        with trace_scope(trace_id_from_request(request)):
+            text = question.strip()
+            if not text:
+                raise BadRequestError("question must not be empty")
+
+            effective_top_k = max(1, min(int(top_k), 20))
+            retriever = request.app.state.kb_retriever
+            retrieval = await run_with_trace(request, lambda: retriever.retrieve(text, top_k=effective_top_k))
+            matches = retrieval.matches or []
+            trace_id = trace_id_from_request(request)
+
+            def _doc_id(match) -> str | None:
+                metadata = getattr(match.chunk, "metadata", {}) or {}
+                doc_id = metadata.get("doc_id")
+                if doc_id:
+                    return str(doc_id)
+                source = str(getattr(match.chunk, "source", ""))
+                return Path(source).stem if source else None
+
+            doc_ids_by_match = [_doc_id(match) for match in matches]
+            retrieved_doc_ids = list(dict.fromkeys([doc_id for doc_id in doc_ids_by_match if doc_id]))
+            retrieved_chunk_ids = [str(match.chunk.chunk_id) for match in matches]
+            retrieved_context_doc_ids = [doc_id for doc_id in doc_ids_by_match if doc_id]
+            retrieved_contexts: list[str] = []
+            for match, doc_id in zip(matches, doc_ids_by_match):
+                if not doc_id:
+                    continue
+                retrieved_contexts.append(
+                    "---\n"
+                    f"doc_id: {doc_id}\n"
+                    f"source: {match.chunk.source}\n"
+                    f"chunk_id: {match.chunk.chunk_id}\n"
+                    "---\n"
+                    f"{match.chunk.text}"
+                )
+
+            intent_leaf_ids: list[str] = []
+            lowered = text.lower()
+            if any(key in lowered for key in ["退货", "退款", "售后", "坏了", "维修", "换货", "保修"]):
+                intent_leaf_ids = ["S8_售后政策"]
+            elif any(key in lowered for key in ["推荐", "买哪款", "预算"]):
+                intent_leaf_ids = ["S1_选购推荐"]
+            elif any(key in lowered for key in ["订单", "物流", "快递"]):
+                intent_leaf_ids = ["S3_订单查询"]
+            elif any(key in lowered for key in ["app", "登录", "功能"]):
+                intent_leaf_ids = ["S10_APP功能"]
+
+            return {
+                "success": True,
+                "data": {
+                    "question": text,
+                    "retrievedDocIds": retrieved_doc_ids,
+                    "retrievedChunkIds": retrieved_chunk_ids,
+                    "retrievedContexts": retrieved_contexts,
+                    "retrievedContextDocIds": retrieved_context_doc_ids,
+                    "intentLeafIds": intent_leaf_ids,
+                    "hasKb": bool(matches),
+                    "hasMcp": False,
+                    "traceId": trace_id,
+                },
+            }
 
     @app.get("/api/tracker/{sender_id}/full")
     async def get_tracker_full(request: Request, sender_id: str):

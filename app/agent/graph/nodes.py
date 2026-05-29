@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from app.agent.graph.state import AgentState
@@ -36,6 +37,34 @@ def _first_command_data(results: list[dict[str, Any]], command_type: str) -> dic
             if isinstance(data, dict):
                 return data
     return {}
+
+
+def _is_likely_order_id(value: str) -> bool:
+    text = value.strip()
+    if len(text) < 4 or len(text) > 64:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", text):
+        return False
+    return any(ch.isdigit() for ch in text)
+
+
+def _finish_active_flow(tracker: Any) -> None:
+    active_flow = getattr(tracker, "active_flow", None)
+    if not active_flow:
+        return
+
+    flow_history = getattr(tracker, "flow_history", None)
+    if isinstance(flow_history, list):
+        flow_history.append(
+            {
+                "flow_name": active_flow,
+                "status": "finished",
+            }
+        )
+    tracker.active_flow = None
+    tracker.flow_status = "idle"
+    tracker.flow_step_index = 0
+    tracker.slot_to_collect = None
 
 
 def load_context(state: AgentState) -> AgentState:
@@ -101,9 +130,6 @@ def understand(state: AgentState) -> AgentState:
                 results = [{"type": "chitchat", "success": True, "data": {"text": reply_text}}]
 
     command_types = [result.get("type") for result in results if isinstance(result, dict)]
-    if results and not _has_command_type(results, "start_flow"):
-        command_processor.process(tracker, results)
-
     if _has_command_type(results, "start_flow") and tracker is not None:
         for result in results:
             if isinstance(result, dict) and result.get("type") == "start_flow":
@@ -142,6 +168,8 @@ def route(state: AgentState) -> AgentState:
         route_name = "ticket"
     elif _has_command_type(results, "knowledge_answer"):
         route_name = "rag"
+    elif _has_command_type(results, "chitchat") and reply_text:
+        route_name = "chitchat"
     elif _has_command_type(results, "start_flow") or active_flow:
         route_name = "flow"
     elif reply_text:
@@ -213,9 +241,13 @@ def flow(state: AgentState) -> AgentState:
     slot_to_collect = getattr(tracker, "slot_to_collect", None)
 
     if slot_to_collect is not None and active_flow is not None:
-        tracker.set_slot(slot_to_collect, message)
-        tracker.slot_to_collect = None
-        flow_result["collected_slot"] = slot_to_collect
+        if slot_to_collect == "order_id" and not _is_likely_order_id(message):
+            flow_result["ignored_slot"] = slot_to_collect
+            flow_result["reason"] = "invalid_slot_value"
+        else:
+            tracker.set_slot(slot_to_collect, message)
+            tracker.slot_to_collect = None
+            flow_result["collected_slot"] = slot_to_collect
 
     next_action = "action_default_fallback"
     active_flow = getattr(tracker, "active_flow", None)
@@ -283,6 +315,9 @@ def action(state: AgentState) -> AgentState:
             "action_result": result.to_dict(),
             "responses": [{"text": result.text or "", "metadata": result.metadata}],
         }
+
+    if next_action in {"action_confirm_postsale", "action_show_logistics"}:
+        _finish_active_flow(tracker)
 
     return {
         **state,

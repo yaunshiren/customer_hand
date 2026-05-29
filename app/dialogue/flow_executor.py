@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.actions.base import ActionResult
@@ -236,7 +237,10 @@ class FlowExecutor:
 
     def _looks_like_order_id(self, message: str) -> bool:
         text = message.strip()
-        if len(text) < 4:
+        if len(text) < 4 or len(text) > 64:
             return False
 
-        return any(ch.isascii() and ch.isalnum() for ch in text)
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", text):
+            return False
+
+        return any(ch.isdigit() for ch in text)

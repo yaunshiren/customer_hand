@@ -54,6 +54,8 @@ class TextSplitter:
         return "\n".join(line.strip() for line in text.splitlines()).strip()
 
     def _source_slug(self, source: str) -> str:
-        slug = source.replace("\\", "/").rsplit("/", 1)[-1]
-        slug = slug.rsplit(".", 1)[0]
+        normalized = source.replace("\\", "/")
+        parts = normalized.rsplit("/", 3)
+        tail = "/".join(parts[-3:]) if len(parts) >= 3 else normalized
+        slug = tail.rsplit(".", 1)[0]
         return "".join(ch if ch.isalnum() else "-" for ch in slug).strip("-") or "doc"
