@@ -1,0 +1,13 @@
+version: "1.0"
+
+flows:
+  postsale:
+    name: 申请售后
+    description: 用户发起退货/售后
+    steps:
+      - id: ask_order
+        action: action_ask_order_id
+      - id: collect_order
+        collect: order_id
+      - id: confirm
+        action: action_confirm_postsale
