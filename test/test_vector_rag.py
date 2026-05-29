@@ -178,7 +178,8 @@ def test_knowledge_answerer_signature_unchanged_with_llm_disabled() -> None:
             "success": False,
             "raw_output": "",
         }
-        result = KnowledgeAnswerer().answer("退货规则", top_k=3)
+        with patch.object(settings, "rag_backend", "keyword"):
+            result = KnowledgeAnswerer().answer("退货规则", top_k=3)
 
     _assert_answer_shape(result)
     assert result["matches"]

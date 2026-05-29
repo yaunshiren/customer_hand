@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from app.rag.documents import KnowledgeChunk
 
 
@@ -15,10 +17,17 @@ class TextSplitter:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
-    def split(self, source: str, text: str) -> list[KnowledgeChunk]:
+    def split(self, source: str, text: str, metadata: dict[str, Any] | None = None) -> list[KnowledgeChunk]:
         normalized = self._normalize(text)
         if not normalized:
             return []
+
+        base_metadata = dict(metadata or {})
+        doc_id = str(base_metadata.get("doc_id") or self._source_slug(source)).strip()
+        if not doc_id:
+            doc_id = self._source_slug(source)
+        base_metadata.setdefault("doc_id", doc_id)
+        base_metadata.setdefault("source", source)
 
         chunks: list[KnowledgeChunk] = []
         start = 0
@@ -29,16 +38,21 @@ class TextSplitter:
             chunk_text = normalized[start:end].strip()
 
             if chunk_text:
+                chunk_metadata = dict(base_metadata)
+                chunk_metadata.update(
+                    {
+                        "doc_id": doc_id,
+                        "chunk_index": index,
+                        "start": start,
+                        "end": end,
+                    }
+                )
                 chunks.append(
                     KnowledgeChunk(
-                        chunk_id=f"{self._source_slug(source)}-{index}",
+                        chunk_id=f"{doc_id}-{index}",
                         source=source,
                         text=chunk_text,
-                        metadata={
-                            "chunk_index": index,
-                            "start": start,
-                            "end": end,
-                        },
+                        metadata=chunk_metadata,
                     )
                 )
                 index += 1

@@ -52,10 +52,16 @@ class KeywordKnowledgeRetriever:
         if docs_dir is not None:
             self.docs_dir = docs_dir
 
-        documents = self.loader.load_directory(self.docs_dir)
+        documents = self.loader.load_documents(self.docs_dir)
         chunks: list[KnowledgeChunk] = []
-        for source, content in documents:
-            chunks.extend(self.splitter.split(source, content))
+        for document in documents:
+            chunks.extend(
+                self.splitter.split(
+                    document.source,
+                    document.text,
+                    metadata=document.metadata,
+                )
+            )
 
         self.index.build(chunks)
         self._is_ready = True

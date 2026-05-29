@@ -18,8 +18,14 @@ def load_knowledge_chunks(docs_dir: Path | None = None) -> list[KnowledgeChunk]:
     splitter = TextSplitter()
 
     chunks: list[KnowledgeChunk] = []
-    for source, content in loader.load_directory(directory):
-        chunks.extend(splitter.split(source, content))
+    for document in loader.load_documents(directory):
+        chunks.extend(
+            splitter.split(
+                document.source,
+                document.text,
+                metadata=document.metadata,
+            )
+        )
     return chunks
 
 
