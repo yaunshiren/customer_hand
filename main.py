@@ -30,60 +30,6 @@ BASE_DIR = Path(__file__).resolve().parent
 INSPECT_TEMPLATE = BASE_DIR / "app" / "api" / "templates" / "inspect.html"
 
 
-def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
-    return any(keyword in text for keyword in keywords)
-
-
-def _predict_eval_intent(text: str) -> list[str]:
-    """Temporary intent mapping for ragenteval's /api/eval/rag side channel."""
-    lowered = text.lower()
-
-    if _contains_any(lowered, ("态度", "投诉", "吐槽", "差评", "不满意")):
-        return ["F3_投诉吐槽"]
-    if _contains_any(lowered, ("希望", "建议", "加个", "新增", "优化")):
-        return ["F2_功能建议"]
-    if _contains_any(lowered, ("充不进电", "不开机", "坏了", "故障", "异常", "报错", "不工作")):
-        return ["F1_故障报告"]
-    if _contains_any(lowered, ("预算", "推荐", "买哪款", "哪款")):
-        return ["S1_选购推荐"]
-    if _contains_any(lowered, ("区别", "对比", "有什么不同", "哪个好")):
-        return ["S3_对比选购"]
-    if _contains_any(lowered, ("保修", "维修", "保修期", "售后政策")):
-        return ["S14_售后政策"]
-    if _contains_any(lowered, ("退货", "退款", "换货", "无理由", "重新买")):
-        return ["S15_退换货"]
-    if _contains_any(lowered, ("物流", "快递", "收货地址", "已经发货", "改地址")):
-        return ["S16_物流配送"]
-    if _contains_any(lowered, ("发票", "抬头", "会员", "积分")):
-        return ["S17_发票会员"]
-    if _contains_any(lowered, ("降价", "补差", "价保", "价格保护", "活动")):
-        return ["S4_价格活动"]
-    if _contains_any(lowered, ("送到", "发货", "库存", "到货", "现货")):
-        return ["S5_库存到货"]
-    if _contains_any(lowered, ("充电器", "配件", "兼容", "保护壳", "贴膜")):
-        return ["S6_配件兼容"]
-    if _contains_any(lowered, ("开机", "首次使用", "怎么用", "操作", "开启")):
-        return ["S8_操作指引"]
-    if _contains_any(lowered, ("wifi", "wi-fi", "配网", "连网", "连接网络")):
-        return ["S9_配网连接"]
-    if _contains_any(lowered, ("升级", "固件", "系统更新")):
-        return ["S11_固件升级"]
-    if _contains_any(lowered, ("联动", "控制扫地机", "智能音箱", "小爱音箱")):
-        return ["S12_生态联动"]
-    if _contains_any(lowered, ("滤芯", "保养", "维护", "多久换")):
-        return ["S13_保养维护"]
-    if _contains_any(lowered, ("屏幕", "尺寸", "刷新率", "参数", "多少像素", "重量")):
-        return ["S2_参数咨询"]
-    if _contains_any(lowered, ("app", "订单", "地址", "收藏")):
-        return ["S10_APP功能"]
-
-    return []
-
-
-def _eval_intent_skips_rag(intent_leaf_ids: list[str]) -> bool:
-    return bool(intent_leaf_ids and intent_leaf_ids[0] in {"F2_功能建议", "F3_投诉吐槽"})
-
-
 @asynccontextmanager
 async def app_lifespan(_: FastAPI):
     configure_logging(settings.log_level)
@@ -179,23 +125,6 @@ def create_app() -> FastAPI:
 
             effective_top_k = max(1, min(int(top_k), 20))
             trace_id = trace_id_from_request(request)
-            intent_leaf_ids = _predict_eval_intent(text)
-
-            if _eval_intent_skips_rag(intent_leaf_ids):
-                return {
-                    "success": True,
-                    "data": {
-                        "question": text,
-                        "retrievedDocIds": [],
-                        "retrievedChunkIds": [],
-                        "retrievedContexts": [],
-                        "retrievedContextDocIds": [],
-                        "intentLeafIds": intent_leaf_ids,
-                        "hasKb": False,
-                        "hasMcp": False,
-                        "traceId": trace_id,
-                    },
-                }
 
             retriever = request.app.state.kb_retriever
             retrieval = await run_with_trace(request, lambda: retriever.retrieve(text, top_k=effective_top_k))
@@ -232,7 +161,8 @@ def create_app() -> FastAPI:
                     "retrievedChunkIds": retrieved_chunk_ids,
                     "retrievedContexts": retrieved_contexts,
                     "retrievedContextDocIds": retrieved_context_doc_ids,
-                    "intentLeafIds": intent_leaf_ids,
+                    "intentLeafIds": [],
+                    "intentSource": "not_exposed",
                     "hasKb": bool(matches),
                     "hasMcp": False,
                     "traceId": trace_id,

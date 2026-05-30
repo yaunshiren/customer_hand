@@ -26,11 +26,6 @@ class FakeRetriever:
         return RetrievalResult(query=query, matches=self.matches)
 
 
-class RaisingRetriever:
-    def retrieve(self, query: str, top_k: int = 3) -> RetrievalResult:
-        raise AssertionError("non-RAG feedback should not call retriever")
-
-
 def _match(doc_id: str, chunk_id: str, text: str = "测试内容") -> RetrievalMatch:
     return RetrievalMatch(
         chunk=KnowledgeChunk(
@@ -66,23 +61,26 @@ def test_eval_rag_response_shape_and_doc_id_alignment(monkeypatch) -> None:
     assert data["retrievedContextDocIds"] == ["DOC_A", "DOC_A", "DOC_B"]
     assert len(data["retrievedContexts"]) == 3
     assert data["retrievedContexts"][0].startswith("---\ndoc_id: DOC_A\n")
-    assert data["intentLeafIds"] == ["S2_参数咨询"]
+    assert data["intentLeafIds"] == []
+    assert data["intentSource"] == "not_exposed"
     assert data["hasKb"] is True
     assert data["hasMcp"] is False
     assert data["traceId"]
 
 
-def test_eval_rag_skips_retrieval_for_feedback(monkeypatch) -> None:
-    monkeypatch.setattr(app.state, "kb_retriever", RaisingRetriever())
+def test_eval_rag_does_not_skip_retrieval_for_feedback(monkeypatch) -> None:
+    retriever = FakeRetriever(matches=[_match("DOC_FEEDBACK", "DOC_FEEDBACK-0")])
+    monkeypatch.setattr(app.state, "kb_retriever", retriever)
 
     response = client.get("/api/eval/rag", params={"question": "希望 APP 能加个深色模式"})
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["intentLeafIds"] == ["F2_功能建议"]
-    assert data["retrievedDocIds"] == []
-    assert data["retrievedContexts"] == []
-    assert data["hasKb"] is False
+    assert retriever.called is True
+    assert data["intentLeafIds"] == []
+    assert data["retrievedDocIds"] == ["DOC_FEEDBACK"]
+    assert len(data["retrievedContexts"]) == 1
+    assert data["hasKb"] is True
 
 
 def test_eval_rag_rejects_empty_question() -> None:

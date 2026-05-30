@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
 from app.agent.graph.state import AgentState
@@ -65,6 +66,53 @@ def _finish_active_flow(tracker: Any) -> None:
     tracker.flow_status = "idle"
     tracker.flow_step_index = 0
     tracker.slot_to_collect = None
+
+
+def _rag_doc_id(match: dict[str, Any]) -> str | None:
+    metadata = match.get("metadata")
+    if isinstance(metadata, dict):
+        doc_id = metadata.get("doc_id")
+        if doc_id:
+            return str(doc_id)
+
+    source = str(match.get("source") or "")
+    return Path(source).stem if source else None
+
+
+def _rag_response_metadata(
+    *,
+    route_name: str,
+    rag_matches: list[dict[str, Any]],
+    used_llm: bool,
+    ticket: dict[str, Any],
+) -> dict[str, Any]:
+    context_doc_ids = [_rag_doc_id(match) for match in rag_matches if isinstance(match, dict)]
+    doc_ids = list(dict.fromkeys([doc_id for doc_id in context_doc_ids if doc_id]))
+    chunk_ids = [
+        str(match.get("chunk_id"))
+        for match in rag_matches
+        if isinstance(match, dict) and match.get("chunk_id") is not None
+    ]
+
+    return {
+        "route": route_name,
+        "rag_match_count": len(rag_matches),
+        "rag_doc_ids": doc_ids,
+        "rag_chunk_ids": chunk_ids,
+        "rag_context_doc_ids": context_doc_ids,
+        "used_llm": used_llm,
+        "ticket_id": ticket.get("ticket_id") if isinstance(ticket, dict) else None,
+    }
+
+
+def _merge_response_metadata(responses: list[dict[str, Any]], common: dict[str, Any]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    for response in responses:
+        item = dict(response)
+        metadata = dict(item.get("metadata") or {})
+        item["metadata"] = {**metadata, **common}
+        merged.append(item)
+    return merged
 
 
 def load_context(state: AgentState) -> AgentState:
@@ -394,6 +442,12 @@ def generate_response(state: AgentState) -> AgentState:
     rag_matches = state.get("rag_matches") or []
     knowledge_answer = str(state.get("knowledge_answer") or "")
     error = str(state.get("error") or "")
+    common_metadata = _rag_response_metadata(
+        route_name=route_name,
+        rag_matches=rag_matches,
+        used_llm=bool(state.get("used_llm")),
+        ticket=ticket if isinstance(ticket, dict) else {},
+    )
 
     if reply_text and route_name == "chitchat":
         responses = [
@@ -419,7 +473,6 @@ def generate_response(state: AgentState) -> AgentState:
                 "metadata": {
                     "route": route_name,
                     "rag_match_count": len(rag_matches),
-                    "ticket_id": ticket.get("ticket_id"),
                     "error": error or None,
                     **(action_result.get("metadata") or {}),
                 },
@@ -427,6 +480,8 @@ def generate_response(state: AgentState) -> AgentState:
         ]
         if tracker is not None:
             tracker.add_bot_message(fallback_text)
+
+    final_responses = _merge_response_metadata(final_responses, common_metadata)
 
     return {
         **state,
