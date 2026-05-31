@@ -1,0 +1,427 @@
+version: v1
+intents:
+  - id: S1_选购推荐
+    name: 选购推荐
+    type: KB
+    aliases:
+      - 购买推荐
+      - 预算推荐
+      - 场景推荐
+    description: 用户希望根据预算、使用场景、送礼对象或偏好获得商品推荐。
+    examples:
+      - 两三千预算想换一台拍照稳定的手机
+      - 给长辈买实用一点的礼物怎么选
+      - 家里有宠物，想选一台更适合的扫地机
+    route_policy:
+      execution_route: rag
+      system_route: kb
+      requires_rag: true
+      notes: 使用选购指南和商品知识回答，不应自由推荐知识库外商品。
+
+  - id: S2_参数咨询
+    name: 参数咨询
+    type: KB
+    aliases:
+      - 产品参数
+      - 规格咨询
+      - 配置查询
+    description: 用户询问单个产品的屏幕、电池、重量、尺寸、功率、延迟、适用面积等静态参数。
+    examples:
+      - 这款手机的屏幕尺寸和刷新率是多少
+      - 空气净化器适合多大的房间
+      - 耳机游戏延迟大概是多少
+    route_policy:
+      execution_route: rag
+      system_route: kb
+      requires_rag: true
+      notes: 优先命中产品详情或参数文档。
+
+  - id: S3_对比选购
+    name: 对比选购
+    type: KB
+    aliases:
+      - 产品对比
+      - 型号对比
+      - 差异咨询
+    description: 用户比较两个或多个产品、型号、配置、场景适配或购买价值。
+    examples:
+      - 两款手机主要差在哪里
+      - 同价位的手表哪个更适合运动
+      - 入门款和 Pro 版怎么选
+    route_policy:
+      execution_route: rag
+      system_route: kb
+      requires_rag: true
+      notes: 需要同时召回被比较产品或对比指南。
+
+  - id: S4_价格活动
+    name: 价格活动
+    type: KB_TOOL
+    aliases:
+      - 优惠活动
+      - 价保
+      - 优惠券
+      - 补差价
+    description: 用户询问优惠、活动、券、价保、降价补差等价格相关问题。
+    examples:
+      - 最近买平板有没有活动
+      - 刚买完就降价还能不能处理
+      - 优惠券能不能用在家电商品上
+    route_policy:
+      execution_route: rag
+      system_route: kb_tool
+      requires_rag: true
+      notes: 先回答价格/价保政策；实时价格、库存和活动应由工具查询。
+
+  - id: S5_库存到货
+    name: 库存到货
+    type: KB_TOOL
+    aliases:
+      - 发货时效
+      - 到货时间
+      - 现货库存
+      - 补货
+    description: 用户询问是否现货、什么时候发货、多久到货、补货或新品上市时间。
+    examples:
+      - 某个颜色现在有没有现货
+      - 下单以后大概几天能到
+      - 缺货商品什么时候补
+    route_policy:
+      execution_route: rag
+      system_route: kb_tool
+      requires_rag: true
+      notes: 先回答通用发货和库存规则；具体库存和预计送达应由订单/库存工具查询。
+
+  - id: S6_配件兼容
+    name: 配件兼容
+    type: KB
+    aliases:
+      - 充电器
+      - 保护壳
+      - 耗材配件
+      - 兼容性
+    description: 用户询问充电器、保护壳、贴膜、耳帽、滤芯、刷头等配件和兼容问题。
+    examples:
+      - 旧充电器能不能给新手机用
+      - 这款平板支持哪种手写笔
+      - 扫地机耗材多久更换一次
+    route_policy:
+      execution_route: rag
+      system_route: kb
+      requires_rag: true
+      notes: 需要产品实体和配件实体同时匹配。
+
+  - id: S7_适用场景
+    name: 适用场景
+    type: KB
+    aliases:
+      - 场景适配
+      - 使用场景
+      - 家庭环境
+    description: 用户询问商品是否适合特定人群、家庭环境、房屋结构、运动或办公场景。
+    examples:
+      - 家里有门槛的房子适合买哪种扫地机
+      - 户外跑步用耳机要注意什么
+      - 大客厅适不适合用这款净化器
+    route_policy:
+      execution_route: rag
+      system_route: kb
+      requires_rag: true
+      notes: 使用场景指南、商品限制和注意事项回答。
+
+  - id: S8_操作指引
+    name: 操作指引
+    type: KB
+    aliases:
+      - 使用教程
+      - 操作步骤
+      - 首次使用
+      - 设置方法
+    description: 用户咨询产品首次使用、开机、设置、定时、清扫区域、截屏等操作步骤。
+    examples:
+      - 扫地机首次使用要怎么启动
+      - 手机快捷操作在哪里设置
+      - 怎么设置定时清扫
+    route_policy:
+      execution_route: rag
+      system_route: kb
+      requires_rag: true
+      notes: 优先召回产品手册和 APP 操作指南。
+
+  - id: S9_配网连接
+    name: 配网连接
+    type: KB
+    aliases:
+      - WiFi连接
+      - 联网失败
+      - 设备离线
+      - 蓝牙连接
+    description: 用户咨询设备配网、Wi-Fi、蓝牙、路由器更换、APP 离线等连接问题。
+    examples:
+      - 设备换了路由器以后连不上
+      - 蓝牙已经连接但 APP 里还是离线
+      - 扫地机添加到 APP 时失败
+    route_policy:
+      execution_route: rag
+      system_route: kb
+      requires_rag: true
+      notes: 优先召回网络连接、配网 FAQ 和 APP 设备管理文档。
+
+  - id: S10_APP功能
+    name: APP功能
+    type: KB_TOOL
+    aliases:
+      - APP操作
+      - 订单地址
+      - 清扫记录
+      - 推送设置
+    description: 用户咨询 APP 中的订单、地址、设备管理、清扫记录、推送、收藏等功能。
+    examples:
+      - APP 里怎么查看设备记录
+      - 收货地址在哪里修改
+      - 推送消息太多怎么关
+    route_policy:
+      execution_route: rag
+      system_route: kb_tool
+      requires_rag: true
+      notes: APP 使用说明走 RAG；涉及个人订单或地址变更时再引导工具。
+
+  - id: S11_固件升级
+    name: 固件升级
+    type: KB
+    aliases:
+      - 系统更新
+      - 版本升级
+      - 固件失败
+    description: 用户咨询设备系统、固件、APP 版本升级，以及升级失败或升级后异常。
+    examples:
+      - 手表系统版本怎么更新
+      - 扫地机升级失败后怎么办
+      - 固件更新时需要注意什么
+    route_policy:
+      execution_route: rag
+      system_route: kb
+      requires_rag: true
+      notes: 优先召回升级指南和升级错误处理文档。
+
+  - id: S12_生态联动
+    name: 生态联动
+    type: KB
+    aliases:
+      - 智能家居联动
+      - 自动化场景
+      - 米家联动
+      - 语音控制
+    description: 用户咨询多个智能设备之间的自动化、语音控制、场景联动和生态兼容。
+    examples:
+      - 开门后能不能触发家里的自动化
+      - 音箱可以控制哪些设备
+      - 离家场景可以联动哪些操作
+    route_policy:
+      execution_route: rag
+      system_route: kb
+      requires_rag: true
+      notes: 需要召回自动化指南、生态兼容和设备手册。
+
+  - id: S13_保养维护
+    name: 保养维护
+    type: KB
+    aliases:
+      - 清洁保养
+      - 耗材维护
+      - 日常维护
+    description: 用户咨询清洁、保养、维护、耗材更换、吸力变弱、水箱清洗等问题。
+    examples:
+      - 扫地机用了很久吸力变小怎么处理
+      - 水箱和滤网应该怎么清洗
+      - 手表日常清洁要注意什么
+    route_policy:
+      execution_route: rag
+      system_route: kb
+      requires_rag: true
+      notes: 先给保养步骤；必要时再引导售后检测。
+
+  - id: S14_售后政策
+    name: 售后政策
+    type: KB
+    aliases:
+      - 保修政策
+      - 维修政策
+      - 保修期
+      - 保外维修
+    description: 用户咨询保修期、保修范围、维修政策、保外费用、检测规则等售后政策。
+    examples:
+      - 手机整机保修怎么算
+      - 配件和电池保修范围一样吗
+      - 人为损坏还能不能维修
+    route_policy:
+      execution_route: rag
+      system_route: kb
+      requires_rag: true
+      notes: 优先召回售后保修政策，而不是只召回产品详情。
+
+  - id: S15_退换货
+    name: 退换货
+    type: KB_TOOL
+    aliases:
+      - 退货退款
+      - 换货
+      - 无理由退货
+      - 质量退换
+    description: 用户咨询退货、退款、换货、无理由退货、质量问题退换、降价后重新购买等规则。
+    examples:
+      - 商品签收后还能不能无理由退
+      - 质量问题想换货怎么处理
+      - 刚买不久降价了能不能重新买
+    route_policy:
+      execution_route: rag
+      system_route: kb_tool
+      requires_rag: true
+      notes: 先回答退换货规则；明确申请时再引导订单号和售后流程。
+
+  - id: S16_物流配送
+    name: 物流配送
+    type: KB_TOOL
+    aliases:
+      - 配送
+      - 快递
+      - 改地址
+      - 物流异常
+    description: 用户咨询发货、配送、物流进度、改地址、拒收、签收、物流超时等问题。
+    examples:
+      - 已经发货后还能不能修改地址
+      - 包裹几天没有物流更新怎么办
+      - 下单后一般多久送到
+    route_policy:
+      execution_route: rag
+      system_route: kb_tool
+      requires_rag: true
+      notes: 先回答物流政策；用户提供订单号后再调用订单或物流工具。
+
+  - id: S17_发票会员
+    name: 发票会员
+    type: KB_TOOL
+    aliases:
+      - 发票
+      - 开票
+      - 抬头
+      - 会员积分
+    description: 用户咨询发票申请、发票抬头、开票状态、会员权益和积分使用。
+    examples:
+      - 电子发票在哪里申请
+      - 公司抬头填错了还能改吗
+      - 积分能不能抵扣订单
+    route_policy:
+      execution_route: rag
+      system_route: kb_tool
+      requires_rag: true
+      notes: 先回答开票/会员规则；涉及具体订单开票时再引导工具。
+
+  - id: F1_故障报告
+    name: 故障报告
+    type: KB_TICKET
+    aliases:
+      - 设备故障
+      - 异常报错
+      - 无法使用
+      - 发热异常
+    description: 用户反馈设备无法使用、异常、报错、充电失败、不开机、发热等故障。
+    examples:
+      - 扫地机放回底座以后一直充不上电
+      - 手表开不了机需要怎么排查
+      - 设备使用时反复报错
+    route_policy:
+      execution_route: rag
+      system_route: kb_ticket
+      requires_rag: true
+      notes: 先给安全提醒和基础排查步骤，再引导创建工单或人工售后；不要直接只要订单号。
+
+  - id: F2_功能建议
+    name: 功能建议
+    type: TICKET
+    aliases:
+      - 产品建议
+      - 功能反馈
+      - 体验优化
+    description: 用户提出新功能、体验优化、产品改进、生态接入等建议。
+    examples:
+      - 希望 APP 支持更舒服的夜间使用体验
+      - 扫地机语音播报能不能增加关闭开关
+      - 建议增加适合儿童使用的模式
+    route_policy:
+      execution_route: ticket
+      system_route: ticket
+      requires_rag: false
+      notes: 记录建议并反馈产品团队，不触发 RAG，不承诺上线。
+
+  - id: F3_投诉吐槽
+    name: 投诉吐槽
+    type: TICKET
+    aliases:
+      - 投诉
+      - 差评
+      - 不满意
+      - 负向反馈
+    description: 用户表达不满、投诉服务态度、物流延迟、质量体验差或要求升级处理。
+    examples:
+      - 对客服处理结果很不满意
+      - 等很久还没处理，体验太差
+      - 要投诉这次服务问题
+    route_policy:
+      execution_route: ticket
+      system_route: ticket
+      requires_rag: false
+      notes: 纯投诉先安抚并建工单；若包含物流/故障事实，后续 route policy 可升级为先 RAG 再工单。
+
+  - id: C1_寒暄问候
+    name: 寒暄问候
+    type: CHITCHAT
+    aliases:
+      - 问候
+      - 客套
+      - 身份询问
+    description: 用户进行问候、感谢、询问助手身份或简单客套交流。
+    examples:
+      - 你好，请问有人在吗
+      - 你是人工客服还是智能助手
+      - 谢谢你的帮助
+    route_policy:
+      execution_route: chitchat
+      system_route: chitchat
+      requires_rag: false
+      notes: 简短回应并引导用户描述选购、订单、售后或故障问题。
+
+  - id: C2_越界提问
+    name: 越界提问
+    type: CHITCHAT
+    aliases:
+      - 非业务问题
+      - 竞品评价
+      - 无关请求
+    description: 用户提出与比特严选商品、订单、售后无关的问题，或要求评价非自营竞品、创作娱乐内容。
+    examples:
+      - 想让我评价一个非自营手机品牌
+      - 问数学、天气、写作等与客服无关的问题
+      - 让我讲段子或写诗
+    route_policy:
+      execution_route: chitchat
+      system_route: out_of_scope
+      requires_rag: false
+      notes: 礼貌说明服务范围，不触发商品检索。
+
+  - id: UNKNOWN
+    name: 未知
+    type: UNKNOWN
+    aliases:
+      - 无法识别
+      - 不确定
+    description: 用户输入过短、含义不清，或无法稳定映射到现有业务意图。
+    examples:
+      - 随便
+      - 不知道
+      - 这个怎么办
+    route_policy:
+      execution_route: fallback
+      system_route: unknown
+      requires_rag: false
+      notes: 追问用户具体需求，不直接检索。
