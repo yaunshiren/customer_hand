@@ -4,6 +4,19 @@ doc_type: troubleshooting
 title: 米家空气净化器常见故障排查（不工作/红灯/异响）
 version: v1.0
 last_updated: "2026-05-12"
+category: faq_troubleshooting
+searchable: true
+intent_ids:
+  - F1_故障报告
+  - S13_保养维护
+device_types:
+  - air_purifier
+keywords:
+  - 红灯
+  - 不工作
+  - 滤芯
+  - 异响
+  - 故障
 related_intents:
   - F1
   - S13
@@ -149,4 +162,3 @@ tags:
 ### 仍未解决？
 
 同一 WiFi 下其他米家设备正常，空气净化器多次重置仍无法联网，应联系客服检测 WiFi 模块。
-

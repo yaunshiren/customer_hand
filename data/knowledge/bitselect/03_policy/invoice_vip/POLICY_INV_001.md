@@ -4,6 +4,16 @@ doc_type: policy
 title: 发票开具规则（个人/企业/抬头修改）
 version: v1.0
 last_updated: "2026-05-12"
+category: policy_invoice_vip
+searchable: true
+intent_ids:
+  - S17_发票会员
+keywords:
+  - 发票
+  - 开票
+  - 抬头
+  - 企业发票
+  - 修改抬头
 related_intents:
   - S17
 tags:

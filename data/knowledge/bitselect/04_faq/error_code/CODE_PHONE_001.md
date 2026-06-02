@@ -4,6 +4,19 @@ doc_type: error_code
 title: 小米手机充电异常排查（含发热警告）
 version: v1.0
 last_updated: "2026-05-12"
+category: faq_error_code
+searchable: true
+intent_ids:
+  - F1_故障报告
+  - S11_固件升级
+device_types:
+  - phone
+keywords:
+  - 手机卡顿
+  - 充电异常
+  - 发热
+  - 系统更新
+  - 充不进电
 related_intents:
   - F1
 tags:
@@ -207,4 +220,3 @@ tags:
 ### 仍未解决？
 
 出现鼓包、异味、冒烟、进液后发热或无法断电时，立即停止使用并转人工售后；必要时按当地安全指引处理。
-

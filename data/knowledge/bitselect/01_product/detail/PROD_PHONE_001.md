@@ -4,6 +4,23 @@ doc_type: product_detail
 title: 小米 13 商品详情
 version: v1.0
 last_updated: "2026-05-12"
+category: product_detail
+searchable: true
+intent_ids:
+  - S1_选购推荐
+  - S2_参数咨询
+  - S3_对比选购
+  - S6_配件兼容
+product_names:
+  - 小米 13
+device_types:
+  - phone
+keywords:
+  - 小米13
+  - 67W
+  - 充电器
+  - 屏幕
+  - 参数
 related_intents:
   - S2
   - S3
@@ -104,4 +121,3 @@ tags:
 - 67W 快充需要原装或合规高功率充电器与线材配合
 - 无线充电时建议取下过厚、带金属件或磁吸环位置不匹配的手机壳
 - 5G、eSIM、WiFi 7 等能力会受销售区域、运营商、系统版本和网络设备影响
-

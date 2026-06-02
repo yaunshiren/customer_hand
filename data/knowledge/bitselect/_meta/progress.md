@@ -1,3 +1,11 @@
+---
+doc_id: META_PROGRESS
+doc_type: meta
+title: 文档生产进度追踪
+category: meta
+searchable: false
+---
+
 # 文档生产进度追踪
 
 > **最后更新**：2026-05-24  

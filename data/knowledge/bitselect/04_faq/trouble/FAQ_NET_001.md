@@ -4,6 +4,22 @@ doc_type: troubleshooting
 title: 设备配网失败通用排查指南
 version: v1.0
 last_updated: "2026-05-12"
+category: faq_troubleshooting
+searchable: true
+intent_ids:
+  - S9_配网连接
+  - F1_故障报告
+device_types:
+  - vacuum
+  - air_purifier
+  - speaker
+  - lock
+keywords:
+  - 配网失败
+  - APP离线
+  - 蓝牙
+  - 重启
+  - 网络
 related_intents:
   - S9
 tags:

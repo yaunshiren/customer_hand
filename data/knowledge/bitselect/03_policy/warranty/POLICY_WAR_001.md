@@ -4,6 +4,24 @@ doc_type: policy
 title: 比特严选保修政策总则
 version: v1.0
 last_updated: "2026-05-12"
+category: policy_warranty
+searchable: true
+intent_ids:
+  - S14_售后政策
+  - F1_故障报告
+device_types:
+  - phone
+  - tablet
+  - watch
+  - vacuum
+  - air_purifier
+  - lock
+keywords:
+  - 保修
+  - 保修期
+  - 免费维修
+  - 售后政策
+  - 性能故障
 related_intents:
   - S14
 tags:

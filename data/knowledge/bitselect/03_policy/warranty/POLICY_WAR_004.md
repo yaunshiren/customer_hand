@@ -4,6 +4,17 @@ doc_type: policy
 title: 过保维修政策与流程
 version: v1.0
 last_updated: "2026-05-12"
+category: policy_warranty
+searchable: true
+intent_ids:
+  - S14_售后政策
+  - F1_故障报告
+keywords:
+  - 过保
+  - 维修
+  - 维修费用
+  - 售后维修
+  - 保外维修
 related_intents:
   - S14
 tags:

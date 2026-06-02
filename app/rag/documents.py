@@ -39,6 +39,8 @@ class KnowledgeDocumentLoader:
                 metadata["doc_id"] = path.stem
             metadata["doc_id"] = str(metadata["doc_id"]).strip() or path.stem
             metadata.setdefault("source", str(path))
+            if not self._is_searchable(path, metadata):
+                continue
             documents.append(KnowledgeDocument(source=str(path), text=text, metadata=metadata))
         return documents
 
@@ -100,5 +102,23 @@ class KnowledgeDocumentLoader:
 
         return metadata
 
-    def _clean_value(self, value: str) -> str:
-        return value.strip().strip('"').strip("'")
+    def _is_searchable(self, path: Path, metadata: dict[str, Any]) -> bool:
+        searchable = metadata.get("searchable")
+        if isinstance(searchable, bool):
+            return searchable
+        if isinstance(searchable, str):
+            normalized = searchable.strip().lower()
+            if normalized in {"false", "no", "0"}:
+                return False
+            if normalized in {"true", "yes", "1"}:
+                return True
+        return "_meta" not in path.parts
+
+    def _clean_value(self, value: str) -> Any:
+        cleaned = value.strip().strip('"').strip("'")
+        lowered = cleaned.lower()
+        if lowered in {"true", "yes"}:
+            return True
+        if lowered in {"false", "no"}:
+            return False
+        return cleaned

@@ -4,6 +4,19 @@ doc_type: app_guide
 title: 比特APP 设备管理（添加/共享/删除）
 version: v1.1
 last_updated: "2026-05-24"
+category: manual_app
+searchable: true
+intent_ids:
+  - S8_操作指引
+  - S9_配网连接
+  - S10_APP功能
+keywords:
+  - 设备管理
+  - 添加设备
+  - 共享设备
+  - 删除设备
+  - 房间
+  - 重新配网
 related_intents:
   - S10
 tags:

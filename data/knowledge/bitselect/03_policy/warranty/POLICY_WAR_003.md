@@ -4,6 +4,17 @@ doc_type: policy
 title: 维修服务报价表（屏幕/电池/主板）
 version: v1.0
 last_updated: "2026-05-12"
+category: policy_warranty
+searchable: true
+intent_ids:
+  - S14_售后政策
+  - F1_故障报告
+keywords:
+  - 维修报价
+  - 屏幕
+  - 电池
+  - 主板
+  - 维修费用
 related_intents:
   - S14
 tags:

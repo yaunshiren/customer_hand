@@ -4,6 +4,25 @@ doc_type: product_detail
 title: 小米 14 Pro 商品详情
 version: v1.0
 last_updated: "2026-05-12"
+category: product_detail
+searchable: true
+intent_ids:
+  - S1_选购推荐
+  - S2_参数咨询
+  - S3_对比选购
+  - S6_配件兼容
+  - S14_售后政策
+product_names:
+  - 小米 14 Pro
+device_types:
+  - phone
+keywords:
+  - 小米14Pro
+  - 120W
+  - 充电器
+  - 屏幕
+  - 刷新率
+  - 保修
 related_intents:
   - S2
   - S3
@@ -104,4 +123,3 @@ tags:
 - 可变光圈、长焦近摄和高规格视频会占用较大存储空间，长期拍摄建议选择 512GB 或 1TB 版本
 - 微曲屏贴膜和保护壳需适配屏幕曲率，避免影响边缘触控和指纹识别
 - WiFi 7、eSIM 和部分网络频段受销售区域、系统版本和运营商支持影响
-

@@ -4,6 +4,19 @@ doc_type: error_code
 title: 小米智能门锁错误码与异常提示
 version: v1.0
 last_updated: "2026-05-12"
+category: faq_error_code
+searchable: true
+intent_ids:
+  - F1_故障报告
+  - S9_配网连接
+device_types:
+  - lock
+keywords:
+  - 错误码
+  - 门锁
+  - 指纹
+  - 电池
+  - 异常提示
 related_intents:
   - F1
 tags:
@@ -178,4 +191,3 @@ tags:
 ### 仍未解决？
 
 反复提示传感器或电机异常时，停止强行开合锁体并联系售后。
-

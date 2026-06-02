@@ -4,6 +4,23 @@ doc_type: product_detail
 title: Redmi Buds 3 Pro 商品详情
 version: v1.0
 last_updated: "2026-05-12"
+category: product_detail
+searchable: true
+intent_ids:
+  - S1_选购推荐
+  - S2_参数咨询
+  - S3_对比选购
+  - S6_配件兼容
+product_names:
+  - Redmi Buds 3 Pro
+device_types:
+  - buds
+keywords:
+  - Redmi Buds 3 Pro
+  - 耳机
+  - 耳塞套
+  - 降噪
+  - 兼容
 related_intents:
   - S2
   - S3

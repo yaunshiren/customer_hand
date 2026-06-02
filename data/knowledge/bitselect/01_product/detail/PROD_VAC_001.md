@@ -4,6 +4,24 @@ doc_type: product_detail
 title: 石头扫地机器人 T7 商品详情
 version: v1.0
 last_updated: "2026-05-11"
+category: product_detail
+searchable: true
+intent_ids:
+  - S1_选购推荐
+  - S3_对比选购
+  - S6_配件兼容
+  - S13_保养维护
+product_names:
+  - 石头扫地机器人 T7
+  - 石头 T7
+device_types:
+  - vacuum
+keywords:
+  - 石头T7
+  - 扫地机
+  - 滤芯
+  - 边刷
+  - 配件
 related_intents:
   - S2
   - S3

@@ -4,6 +4,21 @@ doc_type: network_guide
 title: 5G/2.4G WiFi 配网说明（避坑）
 version: v1.0
 last_updated: "2026-05-12"
+category: manual_network
+searchable: true
+intent_ids:
+  - S9_配网连接
+device_types:
+  - vacuum
+  - air_purifier
+  - lock
+keywords:
+  - 5G WiFi
+  - 2.4G
+  - 2.4GHz
+  - 扫地机
+  - 连不上
+  - 配网失败
 related_intents:
   - S9
 tags:

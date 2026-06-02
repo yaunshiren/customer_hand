@@ -4,6 +4,19 @@ doc_type: error_code
 title: 米家空气净化器错误码与指示灯说明
 version: v1.0
 last_updated: "2026-05-12"
+category: faq_error_code
+searchable: true
+intent_ids:
+  - F1_故障报告
+  - S13_保养维护
+device_types:
+  - air_purifier
+keywords:
+  - 错误码
+  - 指示灯
+  - 红灯
+  - 滤芯
+  - 空气净化器
 related_intents:
   - S13
 tags:

@@ -4,6 +4,18 @@ doc_type: policy
 title: 物流异常处理（地址修改/破损/延迟）
 version: v1.1
 last_updated: "2026-05-24"
+category: policy_logistics
+searchable: true
+intent_ids:
+  - S16_物流配送
+  - F3_投诉吐槽
+keywords:
+  - 改地址
+  - 收货地址
+  - 已经发货
+  - 拦截
+  - 改派
+  - 物流异常
 related_intents:
   - S16
 tags:

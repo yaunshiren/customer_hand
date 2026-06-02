@@ -4,6 +4,17 @@ doc_type: policy
 title: 配送服务（指定时间/上门安装）
 version: v1.0
 last_updated: "2026-05-12"
+category: policy_logistics
+searchable: true
+intent_ids:
+  - S16_物流配送
+  - S8_操作指引
+keywords:
+  - 配送服务
+  - 指定时间
+  - 上门安装
+  - 预约安装
+  - 送装
 related_intents:
   - S5
   - S16

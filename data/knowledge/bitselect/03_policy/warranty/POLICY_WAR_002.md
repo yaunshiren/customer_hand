@@ -4,6 +4,25 @@ doc_type: policy
 title: 各品类保修期与保修范围
 version: v1.0
 last_updated: "2026-05-12"
+category: policy_warranty
+searchable: true
+intent_ids:
+  - S14_售后政策
+  - F1_故障报告
+device_types:
+  - phone
+  - tablet
+  - watch
+  - vacuum
+  - air_purifier
+  - lock
+keywords:
+  - 保修范围
+  - 保修期
+  - 进水
+  - 人为损坏
+  - 碎屏
+  - 保外
 related_intents:
   - S14
 tags:

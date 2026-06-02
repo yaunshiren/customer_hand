@@ -4,6 +4,23 @@ doc_type: product_detail
 title: 石头扫地机器人 G10S Pro 商品详情
 version: v1.0
 last_updated: "2026-05-12"
+category: product_detail
+searchable: true
+intent_ids:
+  - S1_选购推荐
+  - S3_对比选购
+  - S6_配件兼容
+  - S13_保养维护
+product_names:
+  - 石头 G10S Pro
+device_types:
+  - vacuum
+keywords:
+  - G10S Pro
+  - 扫地机
+  - 滤芯
+  - 边刷
+  - 配件
 related_intents:
   - S2
   - S7
@@ -101,4 +118,3 @@ tags:
 - 清水箱内建议只加入清水或石头官方专用清洁液，避免非官方清洁剂腐蚀水路
 - G10S Pro 功能多，首次使用前建议完成完整建图，再设置禁区、地毯策略和拖布回洗频率
 - 仅支持 2.4GHz WiFi 配网，不支持 5GHz；详见 [NET_GUIDE_002] 5G/2.4G WiFi 配网说明
-

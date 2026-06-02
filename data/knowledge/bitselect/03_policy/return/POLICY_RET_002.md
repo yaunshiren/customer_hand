@@ -4,6 +4,16 @@ doc_type: policy
 title: 退换货流程与申请方式
 version: v1.0
 last_updated: "2026-05-12"
+category: policy_return
+searchable: true
+intent_ids:
+  - S15_退换货
+keywords:
+  - 退换货流程
+  - 申请退货
+  - 申请退款
+  - 售后申请
+  - 订单
 related_intents:
   - S15
 tags:

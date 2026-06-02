@@ -4,6 +4,25 @@ doc_type: product_manual
 title: 小米手机用户手册（通用）
 version: v1.0
 last_updated: "2026-05-12"
+category: manual_product
+searchable: true
+intent_ids:
+  - S6_配件兼容
+  - S8_操作指引
+  - F1_故障报告
+product_names:
+  - 小米 13
+  - 小米 14
+  - 小米 14 Pro
+  - Redmi K70
+device_types:
+  - phone
+keywords:
+  - 充电器
+  - 充电线
+  - 兼容
+  - 发热
+  - 基础操作
 related_intents:
   - S8
 tags:
@@ -127,4 +146,3 @@ tags:
 | WiFi 能连但网速慢 | 重启路由器，切换 2.4GHz/5GHz，检查是否多人占用带宽 |
 | 充电速度低于标称 | 检查充电器、线材、温度、电量区间和是否边充边用 |
 | 拍照占用空间过大 | 关闭不必要的高像素、RAW、8K 视频，定期备份相册 |
-

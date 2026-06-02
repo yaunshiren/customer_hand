@@ -4,6 +4,20 @@ doc_type: product_manual
 title: 小米智能门锁用户手册
 version: v1.0
 last_updated: "2026-05-12"
+category: manual_product
+searchable: true
+intent_ids:
+  - S8_操作指引
+  - S9_配网连接
+  - F1_故障报告
+device_types:
+  - lock
+keywords:
+  - 门锁
+  - 指纹
+  - 临时密码
+  - 电池
+  - 配网
 related_intents:
   - S8
 tags:
@@ -118,4 +132,3 @@ tags:
 | APP 看不到门锁状态 | 靠近蓝牙连接，或检查网关和网络 |
 | 门没关紧却显示异常 | 检查门缝、锁舌和门扣板位置 |
 | 低电量后还能开门吗 | 优先更换电池，必要时使用 Type-C 应急供电或机械钥匙 |
-

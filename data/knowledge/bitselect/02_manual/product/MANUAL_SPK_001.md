@@ -4,6 +4,20 @@ doc_type: product_manual
 title: 小爱音箱用户手册
 version: v1.0
 last_updated: "2026-05-12"
+category: manual_product
+searchable: true
+intent_ids:
+  - S8_操作指引
+  - S9_配网连接
+  - S12_生态联动
+device_types:
+  - speaker
+keywords:
+  - 小爱音箱
+  - 语音控制
+  - 联动
+  - 配网
+  - 扫地机控制
 related_intents:
   - S8
 tags:

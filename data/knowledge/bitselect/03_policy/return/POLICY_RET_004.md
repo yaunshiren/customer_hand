@@ -4,6 +4,18 @@ doc_type: policy
 title: 价保政策（降价补差）
 version: v1.0
 last_updated: "2026-05-12"
+category: policy_return_price
+searchable: true
+intent_ids:
+  - S4_价格活动
+  - S15_退换货
+keywords:
+  - 价保
+  - 价格保护
+  - 降价
+  - 补差价
+  - 活动价
+  - 重新买
 related_intents:
   - S4
   - S15

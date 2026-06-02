@@ -4,6 +4,21 @@ doc_type: network_guide
 title: 路由器更换后设备重连指南
 version: v1.0
 last_updated: "2026-05-12"
+category: manual_network
+searchable: true
+intent_ids:
+  - S9_配网连接
+device_types:
+  - vacuum
+  - air_purifier
+  - lock
+  - speaker
+keywords:
+  - 换路由器
+  - 重新配网
+  - 路由器
+  - WiFi迁移
+  - 设备重连
 related_intents:
   - S9
 tags:

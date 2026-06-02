@@ -4,6 +4,18 @@ doc_type: policy
 title: 发货时效与配送范围
 version: v1.1
 last_updated: "2026-05-24"
+category: policy_logistics
+searchable: true
+intent_ids:
+  - S5_库存到货
+  - S16_物流配送
+keywords:
+  - 发货
+  - 库存
+  - 现货
+  - 到货
+  - 配送时效
+  - 送到
 related_intents:
   - S5
   - S16

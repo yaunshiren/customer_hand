@@ -4,6 +4,19 @@ doc_type: troubleshooting
 title: 小米智能门锁常见故障排查（指纹/电池/异常）
 version: v1.0
 last_updated: "2026-05-12"
+category: faq_troubleshooting
+searchable: true
+intent_ids:
+  - F1_故障报告
+  - S9_配网连接
+device_types:
+  - lock
+keywords:
+  - 指纹
+  - 电池
+  - 配网失败
+  - 门锁
+  - 识别异常
 related_intents:
   - F1
 tags:
@@ -146,4 +159,3 @@ tags:
 ### 仍未解决？
 
 同一网关下其他设备正常，门锁长期无法同步状态时，联系售后检测通信模块。
-

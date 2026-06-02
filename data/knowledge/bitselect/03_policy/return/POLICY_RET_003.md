@@ -4,6 +4,16 @@ doc_type: policy
 title: 退换货条件（拆封/赠品/运费）
 version: v1.0
 last_updated: "2026-05-12"
+category: policy_return
+searchable: true
+intent_ids:
+  - S15_退换货
+keywords:
+  - 退换货条件
+  - 拆封
+  - 赠品
+  - 运费
+  - 换货
 related_intents:
   - S15
 tags:

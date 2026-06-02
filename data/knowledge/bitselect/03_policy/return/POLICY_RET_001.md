@@ -4,6 +4,16 @@ doc_type: policy
 title: 7 天无理由退换政策
 version: v1.0
 last_updated: "2026-05-12"
+category: policy_return
+searchable: true
+intent_ids:
+  - S15_退换货
+keywords:
+  - 7天无理由
+  - 退货
+  - 换货
+  - 退款
+  - 无理由退换
 related_intents:
   - S15
 tags:

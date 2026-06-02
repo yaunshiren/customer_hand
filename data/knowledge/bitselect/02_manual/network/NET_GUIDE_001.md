@@ -4,6 +4,23 @@ doc_type: network_guide
 title: 智能设备 WiFi 配网通用指南
 version: v1.0
 last_updated: "2026-05-12"
+category: manual_network
+searchable: true
+intent_ids:
+  - S9_配网连接
+device_types:
+  - vacuum
+  - air_purifier
+  - speaker
+  - lock
+  - camera
+keywords:
+  - 配网
+  - WiFi
+  - 连接网络
+  - 蓝牙
+  - APP离线
+  - 离线
 related_intents:
   - S9
 tags:

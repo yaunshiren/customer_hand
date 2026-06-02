@@ -4,6 +4,23 @@ doc_type: product_detail
 title: 小米 14 商品详情
 version: v1.0
 last_updated: "2026-05-12"
+category: product_detail
+searchable: true
+intent_ids:
+  - S1_选购推荐
+  - S2_参数咨询
+  - S3_对比选购
+  - S6_配件兼容
+product_names:
+  - 小米 14
+device_types:
+  - phone
+keywords:
+  - 小米14
+  - 充电
+  - 充电器
+  - 屏幕
+  - 参数
 related_intents:
   - S2
   - S3
@@ -103,4 +120,3 @@ tags:
 - USB 3.2 Gen 1 数据传输需要高规格数据线和接收设备共同支持
 - 1TB 版本适合大量视频、照片和游戏安装；普通社交与轻办公用户通常无需只为容量选择最高配
 - WiFi 7、双蓝牙、eSIM 等能力会受销售区域、系统版本和网络设备影响
-

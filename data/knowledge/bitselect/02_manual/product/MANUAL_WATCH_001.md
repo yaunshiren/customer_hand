@@ -4,6 +4,25 @@ doc_type: product_manual
 title: 小米手表用户手册
 version: v1.2
 last_updated: "2026-05-24"
+category: manual_product
+searchable: true
+intent_ids:
+  - S8_操作指引
+  - S11_固件升级
+  - S13_保养维护
+  - F1_故障报告
+product_names:
+  - 小米手表 S2
+  - 小米手表 S3
+device_types:
+  - watch
+keywords:
+  - 手表
+  - 充电
+  - 发烫
+  - 表盘
+  - 系统升级
+  - 清洁保养
 related_intents:
   - S8
 tags:

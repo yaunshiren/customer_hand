@@ -4,6 +4,16 @@ doc_type: policy
 title: 会员积分规则与到期提醒
 version: v1.0
 last_updated: "2026-05-12"
+category: policy_invoice_vip
+searchable: true
+intent_ids:
+  - S17_发票会员
+keywords:
+  - 积分
+  - 会员积分
+  - 到期提醒
+  - 积分兑换
+  - 积分规则
 related_intents:
   - S17
 tags:

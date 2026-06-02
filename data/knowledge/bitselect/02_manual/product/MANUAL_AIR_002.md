@@ -4,6 +4,19 @@ doc_type: product_manual
 title: 米家空气净化器滤芯更换指南
 version: v1.0
 last_updated: "2026-05-12"
+category: manual_product
+searchable: true
+intent_ids:
+  - S13_保养维护
+  - F1_故障报告
+device_types:
+  - air_purifier
+keywords:
+  - 滤芯
+  - 更换滤芯
+  - 红灯
+  - 保养
+  - 多久换
 related_intents:
   - S13
 tags:
@@ -105,4 +118,3 @@ tags:
 | 滤芯能不能水洗 | 不能水洗，只能轻拍或低吸力吸尘 |
 | 三款滤芯能不能混用 | 不能混用，需按 4 Lite / 4 / 4 Pro 对应购买 |
 | 滤芯外层很多毛 | 宠物家庭需提高外层清理频率，避免进风受阻 |
-

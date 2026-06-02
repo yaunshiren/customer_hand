@@ -29,6 +29,11 @@ class SimpleKeywordIndex:
             self._index_text(chunk.chunk_id, metadata.get("title"), weight=1.5)
             self._index_text(chunk.chunk_id, metadata.get("related_intents"), weight=1.0)
             self._index_text(chunk.chunk_id, metadata.get("tags"), weight=1.0)
+            self._index_text(chunk.chunk_id, metadata.get("intent_ids"), weight=1.2)
+            self._index_text(chunk.chunk_id, metadata.get("category"), weight=1.0)
+            self._index_text(chunk.chunk_id, metadata.get("product_names"), weight=1.6)
+            self._index_text(chunk.chunk_id, metadata.get("device_types"), weight=0.8)
+            self._index_text(chunk.chunk_id, metadata.get("keywords"), weight=1.4)
 
     def search(self, query: str, top_k: int = 3) -> list[RetrievalMatch]:
         if not self._chunks:

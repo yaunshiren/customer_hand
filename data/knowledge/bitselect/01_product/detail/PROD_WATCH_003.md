@@ -4,6 +4,23 @@ doc_type: product_detail
 title: 小米手表 S3 商品详情
 version: v1.0
 last_updated: "2026-05-12"
+category: product_detail
+searchable: true
+intent_ids:
+  - S1_选购推荐
+  - S2_参数咨询
+  - S6_配件兼容
+  - S11_固件升级
+product_names:
+  - 小米手表 S3
+device_types:
+  - watch
+keywords:
+  - 小米手表S3
+  - 手表
+  - 充电
+  - 系统升级
+  - 表盘
 related_intents:
   - S2
 tags:

@@ -4,6 +4,16 @@ doc_type: policy
 title: 比特严选会员权益体系
 version: v1.0
 last_updated: "2026-05-12"
+category: policy_invoice_vip
+searchable: true
+intent_ids:
+  - S17_发票会员
+keywords:
+  - 会员
+  - 会员权益
+  - 等级
+  - 优惠券
+  - 售后权益
 related_intents:
   - S17
 tags:

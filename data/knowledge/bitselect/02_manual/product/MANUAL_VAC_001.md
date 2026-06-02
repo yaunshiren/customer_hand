@@ -4,6 +4,21 @@ doc_type: product_manual
 title: 石头扫地机用户手册（基础版）
 version: v1.0
 last_updated: "2026-05-12"
+category: manual_product
+searchable: true
+intent_ids:
+  - S8_操作指引
+  - S13_保养维护
+  - F1_故障报告
+device_types:
+  - vacuum
+keywords:
+  - 扫地机
+  - 开机
+  - 充电
+  - 充电座
+  - 金属触点
+  - 水箱
 related_intents:
   - S8
 tags:
@@ -117,4 +132,3 @@ tags:
 | 回充失败 | 检查充电座或基站周围是否有障碍物，确认充电触点干净 |
 | 拖地水量小 | 检查水箱是否有水、拖布是否安装到位、水路是否堵塞 |
 | 吸力变弱 | 清理尘盒、滤网、主刷和风道，确认未使用潮湿滤网 |
-

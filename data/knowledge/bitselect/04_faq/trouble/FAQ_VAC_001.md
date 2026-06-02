@@ -4,6 +4,21 @@ doc_type: troubleshooting
 title: 石头扫地机常见故障排查（不开机/吸力弱/卡死）
 version: v1.0
 last_updated: "2026-05-12"
+category: faq_troubleshooting
+searchable: true
+intent_ids:
+  - F1_故障报告
+  - S13_保养维护
+  - S9_配网连接
+device_types:
+  - vacuum
+keywords:
+  - 充不进电
+  - 开不了机
+  - 吸力弱
+  - 卡死
+  - 充电座
+  - 滤网
 related_intents:
   - F1
   - S13
@@ -151,4 +166,3 @@ tags:
 ### 仍未解决？
 
 水箱和清洁盘正常，但基站无抽水声、无回洗动作或持续报水路异常，应联系客服检查基站水泵和传感器。
-

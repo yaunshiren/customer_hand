@@ -4,6 +4,20 @@ doc_type: product_manual
 title: 小米/Redmi Buds 用户手册（含触控操作）
 version: v1.0
 last_updated: "2026-05-12"
+category: manual_product
+searchable: true
+intent_ids:
+  - S6_配件兼容
+  - S8_操作指引
+  - F1_故障报告
+device_types:
+  - buds
+keywords:
+  - 耳机
+  - 耳塞套
+  - 触控
+  - 配对
+  - 充电盒
 related_intents:
   - S8
 tags:

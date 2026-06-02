@@ -4,6 +4,17 @@ doc_type: policy
 title: 保修凭证要求（发票/二手/赠品）
 version: v1.0
 last_updated: "2026-05-12"
+category: policy_warranty
+searchable: true
+intent_ids:
+  - S14_售后政策
+  - S17_发票会员
+keywords:
+  - 保修凭证
+  - 发票
+  - 二手
+  - 赠品
+  - 购买凭证
 related_intents:
   - S14
 tags:

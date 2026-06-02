@@ -4,6 +4,23 @@ doc_type: product_detail
 title: 小米 Buds 4 商品详情
 version: v1.0
 last_updated: "2026-05-12"
+category: product_detail
+searchable: true
+intent_ids:
+  - S1_选购推荐
+  - S2_参数咨询
+  - S3_对比选购
+  - S6_配件兼容
+product_names:
+  - 小米 Buds 4
+device_types:
+  - buds
+keywords:
+  - 小米 Buds 4
+  - 耳机
+  - 耳塞套
+  - 延迟
+  - 兼容
 related_intents:
   - S2
   - S3

@@ -4,6 +4,17 @@ doc_type: app_guide
 title: 比特APP 基础使用指南（订单/地址/收藏）
 version: v1.1
 last_updated: "2026-05-24"
+category: manual_app
+searchable: true
+intent_ids:
+  - S10_APP功能
+  - S16_物流配送
+keywords:
+  - APP
+  - 订单
+  - 地址
+  - 收藏
+  - 查订单
 related_intents:
   - S10
 tags:
