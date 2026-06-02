@@ -25,6 +25,8 @@ class AgentState(TypedDict, total=False):
     command_parser: Any
     knowledge_answerer: Any
     ticket_service: Any
+    intent_classifier: Any
+    intent_route_policy: Any
 
     # LLM understanding outputs.
     llm_result: dict[str, Any]
@@ -34,6 +36,8 @@ class AgentState(TypedDict, total=False):
 
     # Routing and intermediate node results.
     route: str
+    intent_result: Any
+    route_decision: Any
     rag_query: str
     rag_matches: list[dict[str, Any]]
     knowledge_answer: str

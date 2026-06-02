@@ -28,6 +28,8 @@ class Agent:
         self.llm_generator = LLMCommandGenerator()
         self.knowledge_answerer = KnowledgeAnswerer(docs_dir=knowledge_dir)
         self.ticket_service = ticket_service or TicketService()
+        self.intent_classifier = None
+        self.intent_route_policy = None
 
     def handle_message(self, message: str, sender_id: str) -> list[dict[str, Any]]:
         text = message.strip()
@@ -43,6 +45,8 @@ class Agent:
                 "llm_generator": self.llm_generator,
                 "knowledge_answerer": self.knowledge_answerer,
                 "ticket_service": self.ticket_service,
+                "intent_classifier": self.intent_classifier,
+                "intent_route_policy": self.intent_route_policy,
                 "metadata": {},
             }
             result_state = run_agent_graph(state)

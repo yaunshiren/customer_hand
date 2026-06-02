@@ -86,7 +86,14 @@ class LLMClient:
             timeout=timeout,
         )
 
-    def generate_json(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+    def generate_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        temperature: float | None = None,
+        top_p: float | None = None,
+    ) -> dict[str, Any]:
         start_time = time.perf_counter()
 
         if not self.enabled:
@@ -114,15 +121,18 @@ class LLMClient:
                 system_len=len(system_prompt),
                 user_len=len(user_prompt),
             )
-            response = client.chat.completions.create(
-                model=self.model,
-                messages=[
+            request_kwargs: dict[str, Any] = {
+                "model": self.model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=self.temperature,
-                timeout=self.timeout,
-            )
+                "temperature": self.temperature if temperature is None else temperature,
+                "timeout": self.timeout,
+            }
+            if top_p is not None:
+                request_kwargs["top_p"] = top_p
+            response = client.chat.completions.create(**request_kwargs)
             raw_output = response.choices[0].message.content or ""
             result = self._build_result(
                 success=True,

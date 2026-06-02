@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +14,22 @@ from app.dialogue.command_parser import CommandParser
 from app.rag.answerer import KnowledgeAnswerer
 from app.actions.registry import get_action
 from app.actions.base import ActionResult
+from app.intent import IntentClassifier, IntentRoutePolicy, IntentTaxonomy
 from app.tickets import TicketService
 from app.actions.builtin import register_builtin_actions
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_INTENT_TAXONOMY_PATH = Path(__file__).resolve().parents[3] / "data" / "intents" / "customer_intents.yml"
+
+
+class _DisabledIntentLLMClient:
+    enabled = False
+
+
+@lru_cache(maxsize=1)
+def _load_default_intent_taxonomy() -> IntentTaxonomy:
+    return IntentTaxonomy.load(DEFAULT_INTENT_TAXONOMY_PATH)
 
 
 def _normalize_tracker(tracker: Any, sender_id: str) -> DialogueStateTracker:
@@ -47,6 +60,107 @@ def _is_likely_order_id(value: str) -> bool:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", text):
         return False
     return any(ch.isdigit() for ch in text)
+
+
+def _build_intent_classifier(state: AgentState) -> Any:
+    classifier = state.get("intent_classifier")
+    if classifier is not None and hasattr(classifier, "classify"):
+        return classifier
+
+    llm_generator = state.get("llm_generator")
+    llm_client = getattr(llm_generator, "client", None) or _DisabledIntentLLMClient()
+    return IntentClassifier(_load_default_intent_taxonomy(), llm_client=llm_client)
+
+
+def _build_intent_route_policy(state: AgentState) -> Any:
+    policy = state.get("intent_route_policy")
+    if policy is not None and hasattr(policy, "decide"):
+        return policy
+    return IntentRoutePolicy()
+
+
+def _clear_started_flow(tracker: Any) -> None:
+    if tracker is None:
+        return
+
+    active_flow = getattr(tracker, "active_flow", None)
+    flow_history = getattr(tracker, "flow_history", None)
+    if active_flow and isinstance(flow_history, list):
+        flow_history.append(
+            {
+                "flow_name": active_flow,
+                "status": "cancelled",
+                "reason": "route_policy_override",
+            }
+        )
+
+    if hasattr(tracker, "active_flow"):
+        tracker.active_flow = None
+        tracker.flow_status = "idle"
+        tracker.flow_step_index = 0
+        tracker.slot_to_collect = None
+    elif isinstance(tracker, dict):
+        tracker["active_flow"] = None
+        tracker["flow_status"] = "idle"
+        tracker["flow_step_index"] = 0
+        tracker["slot_to_collect"] = None
+
+
+def _graph_route_from_execution(execution_route: str) -> str:
+    if execution_route == "tool":
+        return "action"
+    return execution_route
+
+
+def _model_dump(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if hasattr(value, "model_dump"):
+        return dict(value.model_dump())
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
+
+
+def _intent_response_metadata(intent_result: Any, route_decision: Any) -> dict[str, Any]:
+    intent_data = _model_dump(intent_result)
+    decision_data = _model_dump(route_decision)
+
+    metadata: dict[str, Any] = {}
+    intent_id = str(intent_data.get("intent_id") or "").strip()
+    if intent_id and intent_id != "UNKNOWN":
+        metadata["intentLeafIds"] = [intent_id]
+    elif intent_data:
+        metadata["intentLeafIds"] = []
+
+    if intent_data:
+        metadata["intentSource"] = intent_data.get("source") or "unknown"
+        metadata["intentConfidence"] = intent_data.get("confidence")
+
+    if decision_data:
+        metadata["execution_route"] = decision_data.get("execution_route")
+        metadata["system_route"] = decision_data.get("system_route")
+        metadata["route_reason"] = decision_data.get("reason")
+        metadata["requires_rag"] = decision_data.get("requires_rag")
+
+    return metadata
+
+
+def _policy_chitchat_reply(route_decision: Any) -> str:
+    decision_data = _model_dump(route_decision)
+    if decision_data.get("system_route") == "out_of_scope":
+        return "抱歉，我主要处理比特严选的商品、订单、物流和售后问题，这类问题暂时无法回答。"
+    return "您好！我是智能客服，请问有什么可以帮您？"
+
+
+def _classify_intent(state: AgentState, message: str) -> Any | None:
+    if not message:
+        return None
+    try:
+        return _build_intent_classifier(state).classify(message)
+    except Exception as exc:
+        logger.exception("intent classify failed: %s", exc)
+        return None
 
 
 def _finish_active_flow(tracker: Any) -> None:
@@ -143,6 +257,7 @@ def understand(state: AgentState) -> AgentState:
         **state,
         "llm_generator": llm_generator,
     }
+    intent_result = _classify_intent(state, message)
 
     flow_ids = sorted((state.get("flows") or {}).keys()) if isinstance(state.get("flows"), dict) else []
 
@@ -162,6 +277,7 @@ def understand(state: AgentState) -> AgentState:
             "sender_id": sender_id,
             "message": message,
             "error": str(exc),
+            "intent_result": intent_result,
             "llm_result": {"handled": False, "reply_text": None, "results": []},
             "llm_results": [],
         }
@@ -194,6 +310,7 @@ def understand(state: AgentState) -> AgentState:
         **state,
         "sender_id": sender_id,
         "message": message,
+        "intent_result": intent_result,
         "llm_result": llm_result,
         "llm_results": results,
         "handled": bool(llm_result.get("handled")),
@@ -211,8 +328,26 @@ def route(state: AgentState) -> AgentState:
     active_flow = getattr(tracker, "active_flow", None) if tracker is not None else None
     llm_generator = state.get("llm_generator")
     llm_enabled = bool(getattr(llm_generator, "enabled", False)) if llm_generator is not None else False
+    intent_result: Any | None = state.get("intent_result")
+    route_decision: Any | None = None
 
-    if _has_command_type(results, "ticket"):
+    if intent_result is not None:
+        try:
+            route_decision = _build_intent_route_policy(state).decide(intent_result, message, tracker)
+        except Exception as exc:
+            logger.exception("intent route policy failed: %s", exc)
+            route_decision = None
+
+    if (
+        route_decision is not None
+        and intent_result is not None
+        and getattr(intent_result, "intent_id", None) != "UNKNOWN"
+        and not _has_command_type(results, "set_slot")
+    ):
+        route_name = _graph_route_from_execution(str(route_decision.execution_route))
+        if route_name != "flow" and _has_command_type(results, "start_flow"):
+            _clear_started_flow(tracker)
+    elif _has_command_type(results, "ticket"):
         route_name = "ticket"
     elif _has_command_type(results, "knowledge_answer"):
         route_name = "rag"
@@ -231,9 +366,15 @@ def route(state: AgentState) -> AgentState:
     else:
         route_name = "fallback"
 
+    if route_decision is not None and route_name == "chitchat" and not reply_text:
+        reply_text = _policy_chitchat_reply(route_decision)
+
     return {
         **state,
         "route": route_name,
+        "reply_text": reply_text,
+        "intent_result": _model_dump(intent_result),
+        "route_decision": _model_dump(route_decision),
     }
 
 
@@ -448,6 +589,7 @@ def generate_response(state: AgentState) -> AgentState:
         used_llm=bool(state.get("used_llm")),
         ticket=ticket if isinstance(ticket, dict) else {},
     )
+    common_metadata.update(_intent_response_metadata(state.get("intent_result"), state.get("route_decision")))
 
     if reply_text and route_name == "chitchat":
         responses = [
