@@ -32,6 +32,8 @@ def normalize_rag_backend(backend: str | None = None) -> str:
     value = (backend if backend is not None else settings.rag_backend).strip().lower()
     if value in {"chroma", "vector"}:
         return "chroma"
+    if value in {"hybrid", "mixed", "multi"}:
+        return "hybrid"
     if value in {"keyword", "keywords", "lexical"}:
         return "keyword"
     logger.warning("Unknown RAG_BACKEND=%s, fallback to keyword", value)
@@ -46,6 +48,7 @@ class KeywordKnowledgeRetriever:
         self.loader = KnowledgeDocumentLoader()
         self.splitter = TextSplitter()
         self.index = SimpleKeywordIndex()
+        self.chunks: list[KnowledgeChunk] = []
         self._is_ready = False
 
     def build(self, docs_dir: Path | None = None) -> None:
@@ -63,6 +66,7 @@ class KeywordKnowledgeRetriever:
                 )
             )
 
+        self.chunks = chunks
         self.index.build(chunks)
         self._is_ready = True
 
@@ -86,15 +90,28 @@ class KnowledgeBaseRetriever:
             from app.rag.vector_retriever import VectorKnowledgeRetriever
 
             return VectorKnowledgeRetriever()
+        if self.backend == "hybrid":
+            from app.rag.hybrid_retriever import HybridRetriever
+
+            return HybridRetriever(docs_dir=docs_dir)
         return KeywordKnowledgeRetriever(docs_dir=docs_dir)
 
     def build(self, docs_dir: Path | None = None) -> None:
-        if isinstance(self._impl, KeywordKnowledgeRetriever):
-            self._impl.build(docs_dir)
+        build = getattr(self._impl, "build", None)
+        if callable(build):
+            build(docs_dir)
 
-    def retrieve(self, query: str, top_k: int | None = None) -> RetrievalResult:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int | None = None,
+        intent_id: str | None = None,
+    ) -> RetrievalResult:
         effective_top_k = top_k if top_k is not None else settings.rag_top_k
-        result = self._impl.retrieve(query, top_k=effective_top_k)
+        if self.backend == "hybrid":
+            result = self._impl.retrieve(query, top_k=effective_top_k, intent_id=intent_id)  # type: ignore[call-arg]
+        else:
+            result = self._impl.retrieve(query, top_k=effective_top_k)
         emit_rag_event(
             "retrieve",
             backend=self.backend,

@@ -22,6 +22,8 @@ from app.settings import settings  # noqa: E402
 def test_normalize_rag_backend_aliases() -> None:
     assert normalize_rag_backend("chroma") == "chroma"
     assert normalize_rag_backend("vector") == "chroma"
+    assert normalize_rag_backend("hybrid") == "hybrid"
+    assert normalize_rag_backend("multi") == "hybrid"
     assert normalize_rag_backend("keyword") == "keyword"
     assert normalize_rag_backend("unknown-x") == "keyword"
 
@@ -43,6 +45,15 @@ def test_knowledge_base_retriever_chroma_backend_uses_vector_impl() -> None:
         retriever = KnowledgeBaseRetriever()
     assert retriever.backend == "chroma"
     assert isinstance(retriever._impl, VectorKnowledgeRetriever)
+
+
+def test_knowledge_base_retriever_hybrid_backend_uses_hybrid_impl() -> None:
+    from app.rag.hybrid_retriever import HybridRetriever  # noqa: E402
+
+    with patch.object(settings, "rag_backend", "hybrid"):
+        retriever = KnowledgeBaseRetriever()
+    assert retriever.backend == "hybrid"
+    assert isinstance(retriever._impl, HybridRetriever)
 
 
 def test_answerer_matches_include_rag_backend_keyword() -> None:
