@@ -27,9 +27,16 @@ class Settings(BaseSettings):
     knowledge_dir: Path = Field(default=DEFAULT_KNOWLEDGE_DIR)
     rag_backend: str = Field(default="keyword")
     chroma_persist_dir: Path = Field(default=PROJECT_ROOT / "data" / "chroma")
+    embedding_provider: str = Field(default="remote")
     embedding_model: str = Field(default="text-embedding-v4")
     embedding_dimensions: int = Field(default=1024)
     embedding_enabled: bool = Field(default=True)
+    local_embedding_model: str = Field(default="BAAI/bge-base-zh-v1.5")
+    local_embedding_dimensions: int = Field(default=768)
+    local_embedding_device: str | None = Field(default=None)
+    local_embedding_query_instruction: str = Field(
+        default="为这个句子生成表示以用于检索相关文章："
+    )
     rag_top_k: int = Field(default=3)
     rag_score_threshold: float = Field(default=0.45)
     

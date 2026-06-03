@@ -108,11 +108,20 @@ def rebuild_index(
 def get_index_status(vector_store: KnowledgeVectorStore | None = None) -> dict[str, Any]:
     """索引状态（供后续 GET /api/knowledge/status 使用）。"""
     store = vector_store or KnowledgeVectorStore.from_settings()
+    provider = settings.embedding_provider.strip().lower()
+    if provider in {"local", "sentence-transformers", "sentence_transformers"}:
+        embedding_model = settings.local_embedding_model
+        embedding_dimensions = settings.local_embedding_dimensions
+    else:
+        embedding_model = settings.embedding_model
+        embedding_dimensions = settings.embedding_dimensions
+
     return {
         "chunk_count": store.count(),
         "persist_dir": str(store.persist_dir),
         "collection_name": store.collection_name,
         "rag_backend": settings.rag_backend,
-        "embedding_model": settings.embedding_model,
-        "embedding_dimensions": settings.embedding_dimensions,
+        "embedding_provider": provider,
+        "embedding_model": embedding_model,
+        "embedding_dimensions": embedding_dimensions,
     }

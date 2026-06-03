@@ -102,3 +102,49 @@ def test_error_message_redacts_api_key() -> None:
         )
         with pytest.raises(RuntimeError, match="\\*\\*\\*"):
             client.embed_documents(["hello"])
+
+
+def test_local_embedding_uses_sentence_transformer_without_api_key() -> None:
+    client = EmbeddingClient(
+        enabled=True,
+        api_key="",
+        base_url="",
+        model="BAAI/bge-base-zh-v1.5",
+        dimensions=3,
+        provider="local",
+    )
+    fake_model = MagicMock()
+    fake_model.encode.return_value = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+
+    with patch("app.rag.embedding.SentenceTransformer", return_value=fake_model) as model_cls:
+        vectors = client.embed_documents(["售后政策", "物流配送"])
+
+    model_cls.assert_called_once_with("BAAI/bge-base-zh-v1.5")
+    fake_model.encode.assert_called_once()
+    call = fake_model.encode.call_args.kwargs
+    assert call["normalize_embeddings"] is True
+    assert call["show_progress_bar"] is False
+    assert vectors == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+
+
+def test_local_embed_query_adds_bge_query_instruction() -> None:
+    instruction = "为这个句子生成表示以用于检索相关文章："
+    client = EmbeddingClient(
+        enabled=True,
+        api_key="",
+        base_url="",
+        model="BAAI/bge-base-zh-v1.5",
+        dimensions=3,
+        provider="local",
+        local_query_instruction=instruction,
+    )
+    fake_model = MagicMock()
+    fake_model.encode.return_value = [[0.1, 0.2, 0.3]]
+
+    with patch("app.rag.embedding.SentenceTransformer", return_value=fake_model):
+        vector = client.embed_query("小米 14 Pro 保修期多久")
+
+    assert fake_model.encode.call_args.args[0] == [
+        "为这个句子生成表示以用于检索相关文章：小米 14 Pro 保修期多久"
+    ]
+    assert vector == [0.1, 0.2, 0.3]
