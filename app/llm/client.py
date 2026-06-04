@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import time
@@ -61,13 +60,9 @@ class LLMClient:
             or ""
         )
         logger.info(
-            "llm.env_check enabled=%s dashscope_present=%s dashscope_len=%s dashscope_prefix=%s dashscope_suffix=%s dashscope_sha8=%s",
+            "llm.env_check enabled=%s api_key=%s",
             enabled,
-            bool(os.getenv("DASHSCOPE_API_KEY")),
-            len(os.getenv("DASHSCOPE_API_KEY") or "") or 0,
-            cls._mask_edge(os.getenv("DASHSCOPE_API_KEY"), head=4),
-            cls._mask_edge(os.getenv("DASHSCOPE_API_KEY"), tail=4),
-            cls._sha8(os.getenv("DASHSCOPE_API_KEY")),
+            cls._mask_api_key(api_key),
         )
         base_url = (
             os.getenv("DASHSCOPE_BASE_URL")
@@ -169,13 +164,10 @@ class LLMClient:
         if not self.api_key:
             raise ValueError("Missing DASHSCOPE_API_KEY or BAILIAN_API_KEY")
         logger.info(
-            "llm.client_config model=%s base_url=%s api_key_len=%d api_key_prefix=%s api_key_suffix=%s api_key_sha8=%s",
+            "llm.client_config model=%s base_url=%s api_key=%s",
             self.model,
             self.base_url,
-            len(self.api_key),
-            self._mask_edge(self.api_key, head=4),
-            self._mask_edge(self.api_key, tail=4),
-            self._sha8(self.api_key),
+            self._mask_api_key(self.api_key),
         )
         return OpenAI(api_key=self.api_key, base_url=self.base_url)
 
@@ -196,11 +188,7 @@ class LLMClient:
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 response = client.post(url, headers=headers, json=payload)
-            logger.info(
-                "llm.httpx_smoke status=%s response_text=%s",
-                response.status_code,
-                response.text[:500],
-            )
+            logger.info("llm.httpx_smoke status=%s", response.status_code)
         except Exception as exc:
             logger.info("llm.httpx_smoke_failed error=%s", self._format_error(exc))
 
@@ -239,20 +227,12 @@ class LLMClient:
         return int((time.perf_counter() - start_time) * 1000)
 
     @staticmethod
-    def _mask_edge(value: str | None, *, head: int = 0, tail: int = 0) -> str:
-        text = value or ""
-        if not text:
+    def _mask_api_key(api_key: str, *, head: int = 5, tail: int = 5) -> str:
+        if not api_key:
             return ""
-        if len(text) <= head + tail:
-            return "*" * len(text)
-        return f"{text[:head]}...{text[-tail:]}"
-
-    @staticmethod
-    def _sha8(value: str | None) -> str:
-        text = value or ""
-        if not text:
-            return ""
-        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
+        if len(api_key) <= head + tail:
+            return "*" * len(api_key)
+        return f"{api_key[:head]}...{api_key[-tail:]}"
 
     def _format_error(self, exc: Exception) -> str:
         message = str(exc)
