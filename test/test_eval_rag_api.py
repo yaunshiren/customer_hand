@@ -60,7 +60,7 @@ def test_eval_rag_response_shape_and_doc_id_alignment(monkeypatch) -> None:
     assert data["retrievedChunkIds"] == ["DOC_A-0", "DOC_A-1", "DOC_B-0"]
     assert data["retrievedContextDocIds"] == ["DOC_A", "DOC_A", "DOC_B"]
     assert len(data["retrievedContexts"]) == 3
-    assert data["retrievedContexts"][0].startswith("---\ndoc_id: DOC_A\n")
+    assert data["retrievedContexts"][0].startswith("[来源 1]\ndoc_id: DOC_A\n")
     assert data["intentLeafIds"] == []
     assert data["intentSource"] == "not_exposed"
     assert data["hasKb"] is True

@@ -15,6 +15,7 @@ from app.rag.answerer import KnowledgeAnswerer
 from app.actions.registry import get_action
 from app.actions.base import ActionResult
 from app.intent import IntentClassifier, IntentRoutePolicy, IntentTaxonomy
+from app.rag.citation import CitationBuilder
 from app.tickets import TicketService
 from app.actions.builtin import register_builtin_actions
 
@@ -182,17 +183,6 @@ def _finish_active_flow(tracker: Any) -> None:
     tracker.slot_to_collect = None
 
 
-def _rag_doc_id(match: dict[str, Any]) -> str | None:
-    metadata = match.get("metadata")
-    if isinstance(metadata, dict):
-        doc_id = metadata.get("doc_id")
-        if doc_id:
-            return str(doc_id)
-
-    source = str(match.get("source") or "")
-    return Path(source).stem if source else None
-
-
 def _rag_response_metadata(
     *,
     route_name: str,
@@ -200,22 +190,14 @@ def _rag_response_metadata(
     used_llm: bool,
     ticket: dict[str, Any],
 ) -> dict[str, Any]:
-    context_doc_ids = [_rag_doc_id(match) for match in rag_matches if isinstance(match, dict)]
-    doc_ids = list(dict.fromkeys([doc_id for doc_id in context_doc_ids if doc_id]))
-    chunk_ids = [
-        str(match.get("chunk_id"))
-        for match in rag_matches
-        if isinstance(match, dict) and match.get("chunk_id") is not None
-    ]
+    citation_metadata = CitationBuilder().from_matches(rag_matches)
 
     return {
         "route": route_name,
         "rag_match_count": len(rag_matches),
-        "rag_doc_ids": doc_ids,
-        "rag_chunk_ids": chunk_ids,
-        "rag_context_doc_ids": context_doc_ids,
         "used_llm": used_llm,
         "ticket_id": ticket.get("ticket_id") if isinstance(ticket, dict) else None,
+        **citation_metadata,
     }
 
 
@@ -389,9 +371,13 @@ def rag(state: AgentState) -> AgentState:
     command_data = _first_command_data(results, "knowledge_answer")
     rag_query = str(command_data.get("query") or message)
     top_k = int(command_data.get("top_k") or 3)
+    intent_data = _model_dump(state.get("intent_result"))
+    intent_id = str(intent_data.get("intent_id") or "").strip()
+    if intent_id == "UNKNOWN":
+        intent_id = ""
 
     try:
-        answer = knowledge_answerer.answer(rag_query, top_k=top_k)
+        answer = knowledge_answerer.answer(rag_query, top_k=top_k, intent_id=intent_id or None)
     except Exception as exc:
         logger.exception("rag node failed: %s", exc)
         return {

@@ -16,7 +16,7 @@ class FakeKnowledgeAnswerer(KnowledgeAnswerer):
     def __init__(self) -> None:
         pass
 
-    def answer(self, question: str, top_k: int = 3) -> dict[str, object]:
+    def answer(self, question: str, top_k: int = 3, **_: object) -> dict[str, object]:
         return {
             "question": question,
             "answer": "测试知识库回答",

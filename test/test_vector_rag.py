@@ -20,7 +20,17 @@ from app.rag.vector_store import KnowledgeVectorStore, VectorChunkRecord  # noqa
 from app.settings import settings  # noqa: E402
 from conftest import FakeEmbeddingClient  # noqa: E402
 
-ANSWER_REQUIRED_KEYS = frozenset({"answer", "matches", "used_llm"})
+ANSWER_REQUIRED_KEYS = frozenset(
+    {
+        "answer",
+        "matches",
+        "used_llm",
+        "rag_doc_ids",
+        "rag_chunk_ids",
+        "rag_context_doc_ids",
+        "retrieved_contexts",
+    }
+)
 MATCH_REQUIRED_KEYS = frozenset(
     {"chunk_id", "source", "score", "text", "metadata", "rag_backend"}
 )
@@ -29,7 +39,7 @@ MATCH_REQUIRED_KEYS = frozenset(
 def _assert_match_fields(match: dict) -> None:
     assert MATCH_REQUIRED_KEYS.issubset(match.keys())
     assert isinstance(match["score"], (int, float))
-    assert match["rag_backend"] in {"chroma", "keyword"}
+    assert match["rag_backend"] in {"chroma", "keyword", "hybrid"}
 
 
 def _assert_answer_shape(result: dict) -> None:

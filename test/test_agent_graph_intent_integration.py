@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from app.agent.graph.nodes import route, understand
+from app.agent.graph.nodes import rag, route, understand
 from app.core.tracker import DialogueStateTracker
 from app.intent import IntentCandidate, IntentResult
+from app.rag.answerer import KnowledgeAnswerer
 
 
 def _intent(intent_id: str, intent_name: str, intent_type: str) -> IntentResult:
@@ -37,6 +38,15 @@ class EmptyCommandGenerator:
 
     def generate(self, tracker, text: str, flow_ids: list[str] | None = None) -> dict[str, object]:
         return {"handled": False, "reply_text": None, "results": [], "raw_output": ""}
+
+
+class RecordingKnowledgeAnswerer(KnowledgeAnswerer):
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int, str | None]] = []
+
+    def answer(self, query: str, top_k: int = 3, intent_id: str | None = None) -> dict[str, object]:
+        self.calls.append((query, top_k, intent_id))
+        return {"answer": "ok", "matches": [], "used_llm": False}
 
 
 def test_understand_adds_intent_result_to_state() -> None:
@@ -117,6 +127,22 @@ def test_route_propagates_policy_metadata_fields() -> None:
     assert state["route"] == "rag"
     assert state["intent_result"]["intent_id"] == "F1_故障报告"
     assert state["route_decision"]["system_route"] == "kb_ticket"
+
+
+def test_rag_passes_intent_id_to_knowledge_answerer() -> None:
+    answerer = RecordingKnowledgeAnswerer()
+
+    state = rag(
+        {
+            "message": "小米 14 Pro 保修期多久？",
+            "llm_results": [],
+            "knowledge_answerer": answerer,
+            "intent_result": _intent("S14_售后政策", "售后政策", "KB"),
+        }
+    )
+
+    assert answerer.calls == [("小米 14 Pro 保修期多久？", 3, "S14_售后政策")]
+    assert state["knowledge_answer"] == "ok"
 
 
 def test_route_does_not_enter_flow_when_policy_overrides_start_flow() -> None:

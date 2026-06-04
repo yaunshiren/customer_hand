@@ -64,7 +64,8 @@ def test_hybrid_merges_keyword_and_vector_duplicates(tmp_path: Path) -> None:
 
     assert len([m for m in result.matches if m.chunk.metadata["doc_id"] == "POLICY_WAR_TEST"]) == 1
     assert result.matches[0].chunk.metadata["hybrid_channels"] == ["keyword", "vector"]
-    assert result.matches[0].score > 0.9
+    assert result.matches[0].chunk.metadata["hybrid_raw_scores"]["vector"] == 0.9
+    assert result.matches[0].chunk.metadata["rerank_score"] == result.matches[0].score
 
 
 def test_hybrid_intent_directed_recall_uses_intent_metadata(tmp_path: Path) -> None:

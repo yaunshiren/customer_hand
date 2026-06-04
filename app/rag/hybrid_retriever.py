@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Protocol
 
 from app.rag.indexer import RetrievalMatch
+from app.rag.reranker import RuleBasedReranker
 from app.rag.retriever import KeywordKnowledgeRetriever, RetrievalResult
 from app.rag.scoring import (
     ChannelMatch,
@@ -33,10 +34,12 @@ class HybridRetriever:
         *,
         keyword_retriever: KeywordKnowledgeRetriever | None = None,
         vector_retriever: _VectorRetrieverLike | None = None,
+        reranker: RuleBasedReranker | None = None,
         enable_vector: bool = True,
     ) -> None:
         self.keyword_retriever = keyword_retriever or KeywordKnowledgeRetriever(docs_dir=docs_dir)
         self._vector_retriever = vector_retriever
+        self.reranker = reranker or RuleBasedReranker()
         self.enable_vector = enable_vector
 
     def build(self, docs_dir: Path | None = None) -> None:
@@ -73,11 +76,18 @@ class HybridRetriever:
         )
         channel_matches.extend(ChannelMatch(channel="intent", match=match) for match in intent_matches)
 
-        matches = merge_channel_matches(channel_matches, top_k=effective_top_k)
+        merged_matches = merge_channel_matches(channel_matches, top_k=candidate_k)
+        matches = self.reranker.rerank(
+            query=query,
+            candidates=merged_matches,
+            intent_id=intent_id,
+            top_k=effective_top_k,
+        )
         emit_rag_event(
             "hybrid_retrieve",
             top_k=effective_top_k,
             candidate_count=len(channel_matches),
+            merged_count=len(merged_matches),
             match_count=len(matches),
             keyword_count=len(keyword_result.matches),
             vector_count=len(vector_result.matches),

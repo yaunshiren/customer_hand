@@ -17,3 +17,6 @@ def test_knowledge_answerer_defaults_to_project_knowledge_dir() -> None:
     answerer.retriever = KnowledgeBaseRetriever(backend="keyword")
     result = answerer.answer("退货规则", top_k=3)
     assert result["matches"], "应加载 data/knowledge 并命中退货规则相关片段"
+    assert result["rag_doc_ids"]
+    assert result["rag_chunk_ids"]
+    assert result["retrieved_contexts"][0].startswith("[来源 1]")

@@ -18,6 +18,7 @@ from app.core.flow_loader import FlowLoader
 from app.core.logging import configure_logging
 from app.core.trace import new_trace_id, run_with_trace, trace_id_from_request, trace_scope
 from app.core.tracker_store import InMemoryTrackerStore
+from app.rag.citation import CitationBuilder
 from app.rag.reindex import get_index_status, rebuild_index
 from app.rag.retriever import KnowledgeBaseRetriever, normalize_rag_backend
 from app.settings import settings
@@ -129,38 +130,16 @@ def create_app() -> FastAPI:
             retriever = request.app.state.kb_retriever
             retrieval = await run_with_trace(request, lambda: retriever.retrieve(text, top_k=effective_top_k))
             matches = retrieval.matches or []
-
-            def _doc_id(match) -> str | None:
-                metadata = getattr(match.chunk, "metadata", {}) or {}
-                doc_id = metadata.get("doc_id")
-                if doc_id:
-                    return str(doc_id)
-                source = str(getattr(match.chunk, "source", ""))
-                return Path(source).stem if source else None
-
-            doc_ids_by_match = [_doc_id(match) for match in matches]
-            retrieved_doc_ids = list(dict.fromkeys([doc_id for doc_id in doc_ids_by_match if doc_id]))
-            retrieved_chunk_ids = [str(match.chunk.chunk_id) for match in matches]
-            retrieved_context_doc_ids = doc_ids_by_match
-            retrieved_contexts: list[str] = []
-            for match, doc_id in zip(matches, doc_ids_by_match):
-                retrieved_contexts.append(
-                    "---\n"
-                    f"doc_id: {doc_id}\n"
-                    f"source: {match.chunk.source}\n"
-                    f"chunk_id: {match.chunk.chunk_id}\n"
-                    "---\n"
-                    f"{match.chunk.text}"
-                )
+            citation_metadata = CitationBuilder().from_matches(matches)
 
             return {
                 "success": True,
                 "data": {
                     "question": text,
-                    "retrievedDocIds": retrieved_doc_ids,
-                    "retrievedChunkIds": retrieved_chunk_ids,
-                    "retrievedContexts": retrieved_contexts,
-                    "retrievedContextDocIds": retrieved_context_doc_ids,
+                    "retrievedDocIds": citation_metadata["rag_doc_ids"],
+                    "retrievedChunkIds": citation_metadata["rag_chunk_ids"],
+                    "retrievedContexts": citation_metadata["retrieved_contexts"],
+                    "retrievedContextDocIds": citation_metadata["rag_context_doc_ids"],
                     "intentLeafIds": [],
                     "intentSource": "not_exposed",
                     "hasKb": bool(matches),

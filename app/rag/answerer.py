@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any
 
 from app.llm.client import LLMClient
+from app.rag.citation import CitationBuilder
+from app.rag.context_builder import ContextBuilder
 from app.rag.retriever import KnowledgeBaseRetriever, RetrievalResult
 from app.settings import settings
 from app.utils.telemetry import emit_rag_event
@@ -13,14 +15,14 @@ class KnowledgeAnswerer:
     def __init__(self, docs_dir: Path | None = None) -> None:
         self.retriever = KnowledgeBaseRetriever(docs_dir=docs_dir)
         self.llm = LLMClient.from_env()
+        self.context_builder = ContextBuilder()
+        self.citation_builder = CitationBuilder(context_builder=self.context_builder)
 
-    def answer(self, query: str, top_k: int = 3) -> dict[str, Any]:
+    def answer(self, query: str, top_k: int = 3, intent_id: str | None = None) -> dict[str, Any]:
         emit_rag_event("answer.start", top_k=top_k, query_len=len(query))
-        retrieval = self.retriever.retrieve(query, top_k=top_k)
-        context_blocks = [
-            f"来源: {match.chunk.source}\n内容: {match.chunk.text}"
-            for match in retrieval.matches
-        ]
+        retrieval = self.retriever.retrieve(query, top_k=top_k, intent_id=intent_id)
+        context_blocks = self.context_builder.build(retrieval.matches)
+        citation_metadata = self.citation_builder.from_matches(retrieval.matches)
 
         if not context_blocks:
             emit_rag_event("answer.end", used_llm=False, reason="no_context", match_count=0)
@@ -28,6 +30,7 @@ class KnowledgeAnswerer:
                 "answer": "暂时没有找到相关知识，请稍后再试或换个问法。",
                 "matches": [],
                 "used_llm": False,
+                **citation_metadata,
             }
 
         system_prompt = "你是电商客服助手，只能根据给定知识片段回答问题，不能编造。"
@@ -45,6 +48,7 @@ class KnowledgeAnswerer:
                 "answer": self._fallback_answer(retrieval),
                 "matches": self._serialize_matches(retrieval),
                 "used_llm": False,
+                **citation_metadata,
             }
 
         emit_rag_event("answer.end", used_llm=True, match_count=len(retrieval.matches))
@@ -53,6 +57,7 @@ class KnowledgeAnswerer:
             "matches": self._serialize_matches(retrieval),
             "used_llm": True,
             "llm_result": llm_result,
+            **citation_metadata,
         }
 
     def _build_user_prompt(self, query: str, context_blocks: list[str]) -> str:
