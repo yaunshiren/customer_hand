@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     local_embedding_model: str = Field(default="BAAI/bge-base-zh-v1.5")
     local_embedding_dimensions: int = Field(default=768)
     local_embedding_device: str | None = Field(default=None)
+    trace_db_url: str | None = Field(default=None)
+    trace_db_pool_size: int = Field(default=5)
+    trace_db_max_overflow: int = Field(default=10)
     local_embedding_query_instruction: str = Field(
         default="为这个句子生成表示以用于检索相关文章："
     )

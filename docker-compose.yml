@@ -5,6 +5,31 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      TRACE_DB_URL: ${TRACE_DB_DOCKER_URL}
     volumes:
       - ./data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
     command: uvicorn main:app --host 0.0.0.0 --port 8000
+
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "${TRACE_MYSQL_HOST_PORT:-3307}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${TRACE_MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${TRACE_MYSQL_DATABASE}
+      MYSQL_USER: ${TRACE_MYSQL_USER}
+      MYSQL_PASSWORD: ${TRACE_MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${TRACE_MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql_data:

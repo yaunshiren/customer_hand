@@ -9,3 +9,6 @@ httpx>=0.24.0
 chromadb>=0.5.0
 sentence-transformers>=2.7.0,<4.0.0
 langgraph>=0.2.0,<1.0.0
+SQLAlchemy>=2.0.0,<3.0.0
+PyMySQL>=1.1.0,<2.0.0
+alembic>=1.13.0,<2.0.0
