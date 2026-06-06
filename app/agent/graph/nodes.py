@@ -186,19 +186,23 @@ def _finish_active_flow(tracker: Any) -> None:
 def _rag_response_metadata(
     *,
     route_name: str,
+    rewritten_query: str | None,
     rag_matches: list[dict[str, Any]],
     used_llm: bool,
     ticket: dict[str, Any],
 ) -> dict[str, Any]:
     citation_metadata = CitationBuilder().from_matches(rag_matches)
 
-    return {
+    metadata = {
         "route": route_name,
         "rag_match_count": len(rag_matches),
         "used_llm": used_llm,
         "ticket_id": ticket.get("ticket_id") if isinstance(ticket, dict) else None,
         **citation_metadata,
     }
+    if rewritten_query:
+        metadata["rewritten_query"] = rewritten_query
+    return metadata
 
 
 def _merge_response_metadata(responses: list[dict[str, Any]], common: dict[str, Any]) -> list[dict[str, Any]]:
@@ -571,6 +575,7 @@ def generate_response(state: AgentState) -> AgentState:
     error = str(state.get("error") or "")
     common_metadata = _rag_response_metadata(
         route_name=route_name,
+        rewritten_query=str(state.get("rag_query") or "").strip() or None,
         rag_matches=rag_matches,
         used_llm=bool(state.get("used_llm")),
         ticket=ticket if isinstance(ticket, dict) else {},

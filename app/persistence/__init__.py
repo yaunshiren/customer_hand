@@ -11,10 +11,12 @@ from app.persistence.repositories import (
     ToolTraceCreate,
     TraceRepository,
 )
+from app.persistence.trace_recorder import AgentTraceRecorder
 
 __all__ = [
     "AgentTrace",
     "AgentTraceCreate",
+    "AgentTraceRecorder",
     "EvalRecord",
     "EvalRecordUpsert",
     "EvalRepository",

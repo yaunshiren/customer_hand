@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -18,6 +20,7 @@ from app.core.flow_loader import FlowLoader
 from app.core.logging import configure_logging
 from app.core.trace import new_trace_id, run_with_trace, trace_id_from_request, trace_scope
 from app.core.tracker_store import InMemoryTrackerStore
+from app.persistence.trace_recorder import AgentTraceRecorder
 from app.rag.citation import CitationBuilder
 from app.rag.reindex import get_index_status, rebuild_index
 from app.rag.retriever import KnowledgeBaseRetriever, normalize_rag_backend
@@ -29,6 +32,48 @@ SERVICE_NAME = settings.app_name
 VERSION = settings.app_version
 BASE_DIR = Path(__file__).resolve().parent
 INSPECT_TEMPLATE = BASE_DIR / "app" / "api" / "templates" / "inspect.html"
+
+
+def _elapsed_ms(start: float) -> int:
+    return max(0, int((time.perf_counter() - start) * 1000))
+
+
+def _conversation_id(sender_id: str) -> str:
+    text = str(sender_id).strip()
+    return text or "default"
+
+
+def _response_metadata(responses: list[MessageResponse]) -> dict[str, Any]:
+    if not responses:
+        return {}
+    return dict(responses[0].metadata or {})
+
+
+def _final_answer(responses: list[MessageResponse]) -> str | None:
+    texts = [str(item.text).strip() for item in responses if item.text and str(item.text).strip()]
+    if not texts:
+        return None
+    return "\n".join(texts)
+
+
+def _first_intent_id(metadata: dict[str, Any]) -> str | None:
+    value = metadata.get("intentLeafIds")
+    if isinstance(value, list) and value:
+        text = str(value[0]).strip()
+        return text or None
+    if isinstance(value, str):
+        text = value.strip()
+        return text or None
+    return None
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 @asynccontextmanager
@@ -43,9 +88,12 @@ def create_app() -> FastAPI:
     store = InMemoryTrackerStore()
     flows = FlowLoader().load_directory(settings.flow_dir)
     agent = Agent(tracker_store=store, flows=flows, knowledge_dir=settings.knowledge_dir)
+    trace_recorder = AgentTraceRecorder()
 
     app = FastAPI(title=SERVICE_NAME, version=VERSION, lifespan=app_lifespan)
+    app.state.agent = agent
     app.state.kb_retriever = agent.knowledge_answerer.retriever
+    app.state.trace_recorder = trace_recorder
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -83,9 +131,25 @@ def create_app() -> FastAPI:
 
     @app.post("/api/messages", response_model=list[MessageResponse])
     async def send_message(req: MessageRequest, request: Request) -> list[MessageResponse]:
-        with trace_scope(trace_id_from_request(request)):
+        trace_id = trace_id_from_request(request)
+        started_at = time.perf_counter()
+        conversation_id = _conversation_id(req.sender_id)
+        trace_recorder: AgentTraceRecorder = request.app.state.trace_recorder
+        error_recorded = False
+
+        with trace_scope(trace_id):
             text = req.message.strip()
             if not text:
+                trace_recorder.record_message_error(
+                    trace_id=trace_id,
+                    sender_id=req.sender_id,
+                    conversation_id=conversation_id,
+                    user_text=req.message or "<empty_message>",
+                    error="message must not be empty",
+                    latency_ms=_elapsed_ms(started_at),
+                    route="bad_request",
+                )
+                error_recorded = True
                 raise BadRequestError("message must not be empty")
 
             logger.info(
@@ -93,29 +157,61 @@ def create_app() -> FastAPI:
                 req.sender_id,
                 len(text),
             )
+            trace_recorder.record_message_start(
+                trace_id=trace_id,
+                sender_id=req.sender_id,
+                conversation_id=conversation_id,
+                user_text=text,
+            )
 
-            def handle() -> list[dict[str, object]]:
-                return agent.handle_message(
-                    message=req.message,
-                    sender_id=req.sender_id,
-                )
-
-            raw_responses = await run_with_trace(request, handle)
-            now = datetime.now(timezone.utc).isoformat()
-
-            responses: list[MessageResponse] = []
-            for item in raw_responses:
-                responses.append(
-                    MessageResponse(
-                        recipient_id=str(item.get("recipient_id", req.sender_id)),
-                        text=item.get("text"),
-                        timestamp=str(item.get("timestamp") or now),
-                        metadata=dict(item.get("metadata") or {}),
+            try:
+                def handle() -> list[dict[str, object]]:
+                    return request.app.state.agent.handle_message(
+                        message=req.message,
+                        sender_id=req.sender_id,
                     )
+
+                raw_responses = await run_with_trace(request, handle)
+                now = datetime.now(timezone.utc).isoformat()
+
+                responses: list[MessageResponse] = []
+                for item in raw_responses:
+                    responses.append(
+                        MessageResponse(
+                            recipient_id=str(item.get("recipient_id", req.sender_id)),
+                            text=item.get("text"),
+                            timestamp=str(item.get("timestamp") or now),
+                            metadata=dict(item.get("metadata") or {}),
+                        )
+                    )
+
+                metadata = _response_metadata(responses)
+                trace_recorder.record_message_success(
+                    trace_id=trace_id,
+                    sender_id=req.sender_id,
+                    conversation_id=conversation_id,
+                    user_text=text,
+                    rewritten_query=metadata.get("rewritten_query") or None,
+                    intent_id=_first_intent_id(metadata),
+                    intent_confidence=_optional_float(metadata.get("intentConfidence")),
+                    route=str(metadata.get("route") or "").strip() or None,
+                    final_answer=_final_answer(responses),
+                    latency_ms=_elapsed_ms(started_at),
                 )
 
-            logger.info("api.messages.done sender_id=%s replies=%d", req.sender_id, len(responses))
-            return responses
+                logger.info("api.messages.done sender_id=%s replies=%d", req.sender_id, len(responses))
+                return responses
+            except Exception as exc:
+                if not error_recorded:
+                    trace_recorder.record_message_error(
+                        trace_id=trace_id,
+                        sender_id=req.sender_id,
+                        conversation_id=conversation_id,
+                        user_text=text,
+                        error=exc,
+                        latency_ms=_elapsed_ms(started_at),
+                    )
+                raise
 
     @app.get("/api/eval/rag")
     async def eval_rag(request: Request, question: str, top_k: int = 5):

@@ -22,11 +22,15 @@ def get_trace_db_url() -> str:
 def get_engine() -> Engine:
     global _engine
     if _engine is None:
+        connect_args: dict[str, object] = {}
+        if get_trace_db_url().startswith("mysql+pymysql://"):
+            connect_args["connect_timeout"] = settings.trace_db_connect_timeout
         _engine = create_engine(
             get_trace_db_url(),
             pool_size=settings.trace_db_pool_size,
             max_overflow=settings.trace_db_max_overflow,
             pool_pre_ping=True,
+            connect_args=connect_args,
             future=True,
         )
     return _engine
