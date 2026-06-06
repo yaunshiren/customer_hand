@@ -11,6 +11,8 @@ from app.persistence.repositories import (
     ToolTraceCreate,
     TraceRepository,
 )
+from app.persistence.eval_recorder import EvalPersistSummary, normalize_eval_record, persist_eval_jsonl
+from app.persistence.eval_report import default_badcase_report_path, render_badcase_markdown, write_badcase_report
 from app.persistence.retrieval_recorder import RetrievalTraceRecorder, record_retrieval_traces
 from app.persistence.trace_recorder import AgentTraceRecorder
 from app.persistence.tool_recorder import ToolTraceRecorder, record_tool_trace
@@ -20,6 +22,7 @@ __all__ = [
     "AgentTraceCreate",
     "AgentTraceRecorder",
     "EvalRecord",
+    "EvalPersistSummary",
     "EvalRecordUpsert",
     "EvalRepository",
     "RepositoryError",
@@ -30,9 +33,14 @@ __all__ = [
     "ToolTraceCreate",
     "ToolTraceRecorder",
     "TraceRepository",
+    "default_badcase_report_path",
     "get_engine",
+    "normalize_eval_record",
+    "persist_eval_jsonl",
     "ping_trace_db",
     "record_retrieval_traces",
     "record_tool_trace",
+    "render_badcase_markdown",
     "trace_db_session",
+    "write_badcase_report",
 ]
