@@ -11,6 +11,7 @@ from app.persistence.repositories import (
     ToolTraceCreate,
     TraceRepository,
 )
+from app.persistence.retrieval_recorder import RetrievalTraceRecorder, record_retrieval_traces
 from app.persistence.trace_recorder import AgentTraceRecorder
 
 __all__ = [
@@ -23,10 +24,12 @@ __all__ = [
     "RepositoryError",
     "RetrievalTrace",
     "RetrievalTraceCreate",
+    "RetrievalTraceRecorder",
     "ToolTrace",
     "ToolTraceCreate",
     "TraceRepository",
     "get_engine",
     "ping_trace_db",
+    "record_retrieval_traces",
     "trace_db_session",
 ]

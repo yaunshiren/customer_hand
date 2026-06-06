@@ -8,7 +8,9 @@ from typing import Protocol
 from app.rag.documents import KnowledgeChunk, KnowledgeDocumentLoader
 from app.rag.indexer import RetrievalMatch, SimpleKeywordIndex
 from app.rag.splitter import TextSplitter
+from app.rag.trace_payload import retrieval_trace_record
 from app.settings import settings
+from app.persistence.retrieval_recorder import record_retrieval_traces
 from app.utils.telemetry import emit_rag_event
 
 logger = logging.getLogger(__name__)
@@ -119,4 +121,13 @@ class KnowledgeBaseRetriever:
             match_count=len(result.matches),
             query_len=len(query.strip()),
         )
+        if self.backend != "hybrid":
+            channel = "vector" if self.backend == "chroma" else "keyword"
+            record_retrieval_traces(
+                query=result.query,
+                records=[
+                    retrieval_trace_record(channel=channel, match=match)
+                    for match in result.matches
+                ],
+            )
         return result

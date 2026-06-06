@@ -13,6 +13,8 @@ from app.rag.scoring import (
     lexical_overlap_score,
     merge_channel_matches,
 )
+from app.rag.trace_payload import chunk_trace_key, rerank_scores_by_chunk_key, retrieval_trace_record
+from app.persistence.retrieval_recorder import record_retrieval_traces
 from app.settings import settings
 from app.utils.telemetry import emit_rag_event
 
@@ -83,6 +85,11 @@ class HybridRetriever:
             intent_id=intent_id,
             top_k=effective_top_k,
         )
+        self._record_retrieval_trace(
+            query=query,
+            channel_matches=channel_matches,
+            final_matches=matches,
+        )
         emit_rag_event(
             "hybrid_retrieve",
             top_k=effective_top_k,
@@ -148,3 +155,21 @@ class HybridRetriever:
 
     def _candidate_top_k(self, top_k: int) -> int:
         return max(top_k, top_k * 4, 8)
+
+    def _record_retrieval_trace(
+        self,
+        *,
+        query: str,
+        channel_matches: list[ChannelMatch],
+        final_matches: list[RetrievalMatch],
+    ) -> None:
+        rerank_by_key = rerank_scores_by_chunk_key(final_matches)
+        records = [
+            retrieval_trace_record(
+                channel=item.channel,
+                match=item.match,
+                rerank_score=rerank_by_key.get(chunk_trace_key(item.match)),
+            )
+            for item in channel_matches
+        ]
+        record_retrieval_traces(query=query, records=records)
