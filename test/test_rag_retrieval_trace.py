@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy import select
 
 from app.core.trace import trace_scope
 from app.persistence.db import ping_trace_db, trace_db_session
@@ -164,16 +165,20 @@ def test_keyword_retriever_persists_retrieval_trace_to_mysql(trace_db_available)
             retriever.retrieve("database trace question", top_k=3)
 
         with trace_db_session() as session:
-            rows = session.query(RetrievalTrace).filter(RetrievalTrace.trace_id == trace_id).all()
+            rows = list(
+                session.execute(
+                    select(
+                        RetrievalTrace.query,
+                        RetrievalTrace.channel,
+                        RetrievalTrace.doc_id,
+                        RetrievalTrace.chunk_id,
+                        RetrievalTrace.score,
+                        RetrievalTrace.rerank_score,
+                        RetrievalTrace.content,
+                    ).where(RetrievalTrace.trace_id == trace_id)
+                ).all()
+            )
 
-        assert len(rows) == 1
-        row = rows[0]
-        assert row.query == "database trace question"
-        assert row.channel == "keyword"
-        assert row.doc_id == "DOC_DB"
-        assert row.chunk_id == "DOC_DB-0"
-        assert row.score == 7.0
-        assert row.rerank_score is None
-        assert row.content == "DOC_DB context"
+        assert rows == [("database trace question", "keyword", "DOC_DB", "DOC_DB-0", 7.0, None, "DOC_DB context")]
     finally:
         _delete_retrieval_traces(trace_id)

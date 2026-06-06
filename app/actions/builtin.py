@@ -26,7 +26,11 @@ class ActionAskOrderId(Action):
     def run(self, tracker: Any, **kwargs: Any) -> ActionResult:
         return ActionResult(
             text="请提供订单号，我来帮你继续处理。",
-            metadata={"action": self.name},
+            metadata={
+                "action": self.name,
+                "argument_status": "missing",
+                "missing_arguments": ["order_id"],
+            },
         )
 
 
@@ -45,6 +49,8 @@ class ActionConfirmPostsale(Action):
             metadata={
                 "action": self.name,
                 "order_id": order_id,
+                "argument_status": "valid" if order_id else "missing",
+                "missing_arguments": [] if order_id else ["order_id"],
             },
         )
 
@@ -64,6 +70,8 @@ class ActionShowLogistics(Action):
             metadata={
                 "action": self.name,
                 "order_id": order_id,
+                "argument_status": "valid" if order_id else "missing",
+                "missing_arguments": [] if order_id else ["order_id"],
             },
         )
 

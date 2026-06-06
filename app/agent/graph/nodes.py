@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from app.agent.graph.state import AgentState
+from app.persistence.tool_recorder import record_tool_trace
 from app.core.tracker import DialogueStateTracker
 from app.dialogue.llm_generator import LLMCommandGenerator
 from app.dialogue.command_processor import CommandProcessor
@@ -213,6 +215,63 @@ def _merge_response_metadata(responses: list[dict[str, Any]], common: dict[str, 
         item["metadata"] = {**metadata, **common}
         merged.append(item)
     return merged
+
+
+def _elapsed_ms(start: float) -> int:
+    return max(0, int((time.perf_counter() - start) * 1000))
+
+
+def _tracker_tool_snapshot(tracker: Any) -> dict[str, Any]:
+    if tracker is None:
+        return {}
+
+    if hasattr(tracker, "to_dict"):
+        data = tracker.to_dict()
+    elif isinstance(tracker, dict):
+        data = dict(tracker)
+    else:
+        data = {
+            "sender_id": getattr(tracker, "sender_id", None),
+            "slots": getattr(tracker, "slots", None),
+            "active_flow": getattr(tracker, "active_flow", None),
+            "flow_status": getattr(tracker, "flow_status", None),
+            "slot_to_collect": getattr(tracker, "slot_to_collect", None),
+        }
+
+    return {
+        "sender_id": data.get("sender_id"),
+        "slots": dict(data.get("slots") or {}),
+        "active_flow": data.get("active_flow"),
+        "flow_status": data.get("flow_status"),
+        "slot_to_collect": data.get("slot_to_collect"),
+        "latest_action_name": data.get("latest_action_name"),
+    }
+
+
+def _action_arguments(next_action: str, tracker: Any, metadata: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "action": next_action,
+        "tracker": _tracker_tool_snapshot(tracker),
+        "metadata": metadata,
+    }
+
+
+def _ticket_arguments(
+    *,
+    sender_id: str,
+    ticket_text: str,
+    ticket_data: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "sender_id": sender_id,
+        "text": ticket_text,
+        "title": ticket_data.get("title"),
+        "summary": ticket_data.get("summary"),
+        "category": ticket_data.get("category"),
+        "priority": ticket_data.get("priority"),
+        "suggestion": ticket_data.get("suggestion"),
+        "reason": ticket_data.get("reason"),
+    }
 
 
 def load_context(state: AgentState) -> AgentState:
@@ -465,15 +524,30 @@ def action(state: AgentState) -> AgentState:
     tracker = state.get("tracker")
     next_action = str(state.get("next_action") or "action_default_fallback")
     metadata = dict(state.get("metadata") or {})
+    started_at = time.perf_counter()
+    arguments = _action_arguments(next_action, tracker, metadata)
 
     register_builtin_actions()
     action_obj = get_action(next_action)
     if action_obj is None:
         next_action = "action_default_fallback"
         action_obj = get_action(next_action)
+        arguments = _action_arguments(next_action, tracker, metadata)
 
     if action_obj is None or tracker is None:
-        result = ActionResult(text="系统暂时不可用。", metadata={"action": next_action, "error": "action_not_found"})
+        error_type = "action_not_found" if action_obj is None else "missing_tracker"
+        result = ActionResult(text="系统暂时不可用。", metadata={"action": next_action, "error": error_type})
+        record_tool_trace(
+            tool_name=next_action,
+            arguments_json=arguments,
+            result_json={
+                **result.to_dict(),
+                "failure_type": "TOOL_ARGUMENT_ERROR",
+                "error_type": error_type,
+            },
+            status="failed",
+            latency_ms=_elapsed_ms(started_at),
+        )
         return {
             **state,
             "action_result": result.to_dict(),
@@ -488,12 +562,31 @@ def action(state: AgentState) -> AgentState:
             text="系统暂时不可用。",
             metadata={"action": next_action, "error": str(exc)},
         )
+        record_tool_trace(
+            tool_name=next_action,
+            arguments_json=arguments,
+            result_json={
+                **result.to_dict(),
+                "failure_type": "TOOL_FAILURE",
+                "error_type": exc.__class__.__name__,
+            },
+            status="failed",
+            latency_ms=_elapsed_ms(started_at),
+        )
         return {
             **state,
             "error": str(exc),
             "action_result": result.to_dict(),
             "responses": [{"text": result.text or "", "metadata": result.metadata}],
         }
+
+    record_tool_trace(
+        tool_name=next_action,
+        arguments_json=arguments,
+        result_json=result.to_dict(),
+        status="success",
+        latency_ms=_elapsed_ms(started_at),
+    )
 
     if next_action in {"action_confirm_postsale", "action_show_logistics"}:
         _finish_active_flow(tracker)
@@ -517,16 +610,32 @@ def ticket(state: AgentState) -> AgentState:
 
     ticket_data = _first_command_data(llm_results, "ticket")
     ticket_text = str(ticket_data.get("text") or message)
-    ticket = ticket_service.create_ticket(
-        sender_id=sender_id,
-        text=ticket_text,
-        metadata={"source": "ticket"},
-        title=ticket_data.get("title"),
-        summary=ticket_data.get("summary"),
-        category=ticket_data.get("category"),
-        priority=ticket_data.get("priority"),
-        suggestion=ticket_data.get("suggestion"),
-    )
+    arguments = _ticket_arguments(sender_id=sender_id, ticket_text=ticket_text, ticket_data=ticket_data)
+    started_at = time.perf_counter()
+    try:
+        ticket = ticket_service.create_ticket(
+            sender_id=sender_id,
+            text=ticket_text,
+            metadata={"source": "ticket"},
+            title=ticket_data.get("title"),
+            summary=ticket_data.get("summary"),
+            category=ticket_data.get("category"),
+            priority=ticket_data.get("priority"),
+            suggestion=ticket_data.get("suggestion"),
+        )
+    except Exception as exc:
+        record_tool_trace(
+            tool_name="ticket_create",
+            arguments_json=arguments,
+            result_json={
+                "error": str(exc),
+                "failure_type": "TOOL_FAILURE",
+                "error_type": exc.__class__.__name__,
+            },
+            status="failed",
+            latency_ms=_elapsed_ms(started_at),
+        )
+        raise
 
     if tracker is not None:
         tracker.latest_action_name = "ticket_create"
@@ -537,20 +646,28 @@ def ticket(state: AgentState) -> AgentState:
         "category": ticket.category,
         "priority": ticket.priority,
     }
+    ticket_result = {
+        "ticket_id": ticket.ticket_id,
+        "sender_id": ticket.sender_id,
+        "title": ticket.title,
+        "summary": ticket.summary,
+        "category": ticket.category,
+        "priority": ticket.priority,
+        "suggestion": ticket.suggestion,
+        "status": ticket.status,
+        "metadata": ticket.metadata,
+    }
+    record_tool_trace(
+        tool_name="ticket_create",
+        arguments_json=arguments,
+        result_json=ticket_result,
+        status="success",
+        latency_ms=_elapsed_ms(started_at),
+    )
 
     return {
         **state,
-        "ticket": {
-            "ticket_id": ticket.ticket_id,
-            "sender_id": ticket.sender_id,
-            "title": ticket.title,
-            "summary": ticket.summary,
-            "category": ticket.category,
-            "priority": ticket.priority,
-            "suggestion": ticket.suggestion,
-            "status": ticket.status,
-            "metadata": ticket.metadata,
-        },
+        "ticket": ticket_result,
         "responses": [
             {
                 "recipient_id": sender_id,

@@ -13,6 +13,7 @@ from app.persistence.repositories import (
 )
 from app.persistence.retrieval_recorder import RetrievalTraceRecorder, record_retrieval_traces
 from app.persistence.trace_recorder import AgentTraceRecorder
+from app.persistence.tool_recorder import ToolTraceRecorder, record_tool_trace
 
 __all__ = [
     "AgentTrace",
@@ -27,9 +28,11 @@ __all__ = [
     "RetrievalTraceRecorder",
     "ToolTrace",
     "ToolTraceCreate",
+    "ToolTraceRecorder",
     "TraceRepository",
     "get_engine",
     "ping_trace_db",
     "record_retrieval_traces",
+    "record_tool_trace",
     "trace_db_session",
 ]
