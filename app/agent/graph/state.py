@@ -25,6 +25,7 @@ class AgentState(TypedDict, total=False):
     command_parser: Any
     knowledge_answerer: Any
     ticket_service: Any
+    business_tool_service: Any
     intent_classifier: Any
     intent_route_policy: Any
     business_classifier: Any
@@ -52,6 +53,7 @@ class AgentState(TypedDict, total=False):
 
     # Action / ticket outputs.
     action_result: dict[str, Any]
+    tool_result: dict[str, Any]
     ticket: dict[str, Any]
 
     # Final response and error propagation.

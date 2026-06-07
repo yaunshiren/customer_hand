@@ -20,6 +20,7 @@ from app.intent import BusinessQuestionClassifier, IntentClassifier, IntentRoute
 from app.rag.citation import CitationBuilder
 from app.tickets import TicketService
 from app.actions.builtin import register_builtin_actions
+from app.tools import MockBusinessToolService, ToolCallResult, ToolError, validate_tool_arguments
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,13 @@ def _build_business_question_classifier(state: AgentState) -> Any:
     if classifier is not None and hasattr(classifier, "classify"):
         return classifier
     return BusinessQuestionClassifier()
+
+
+def _build_business_tool_service(state: AgentState) -> Any:
+    service = state.get("business_tool_service")
+    if service is not None:
+        return service
+    return MockBusinessToolService()
 
 
 def _clear_started_flow(tracker: Any) -> None:
@@ -178,11 +186,74 @@ def _business_response_metadata(classification: Any) -> dict[str, Any]:
     }
 
 
+def _tool_response_metadata(tool_result: Any) -> dict[str, Any]:
+    data = _model_dump(tool_result)
+    if not data:
+        return {}
+
+    error = data.get("error")
+    error_code = error.get("code") if isinstance(error, dict) else None
+    return {
+        "tool_name": data.get("tool_name"),
+        "tool_success": data.get("success"),
+        "tool_status": data.get("status"),
+        "tool_arguments": data.get("arguments") or {},
+        "tool_error_code": error_code,
+        "tool_latency_ms": data.get("latency_ms"),
+    }
+
+
 def _policy_chitchat_reply(route_decision: Any) -> str:
     decision_data = _model_dump(route_decision)
     if decision_data.get("system_route") == "out_of_scope":
         return "抱歉，我主要处理比特严选的商品、订单、物流和售后问题，这类问题暂时无法回答。"
     return "您好！我是智能客服，请问有什么可以帮您？"
+
+
+def _business_clarify_reply(classification: Any) -> str:
+    data = _model_dump(classification)
+    missing = [str(item) for item in data.get("missing_arguments") or []]
+    tool_name = str(data.get("target_tool") or "").strip()
+
+    if "order_id" in missing:
+        return "请提供订单号，我才能继续帮你查询或办理。"
+    if "title" in missing:
+        return "请提供发票抬头，例如公司名称或个人抬头。"
+    if "user_id" in missing and tool_name == "create_ticket":
+        return "请提供用户 ID，我才能帮你创建工单。"
+    if missing:
+        return f"还缺少这些信息：{', '.join(missing)}。请补充后我再继续处理。"
+    return "请补充一下具体信息，我再继续处理。"
+
+
+def _business_route_name(classification: Any, *, has_set_slot: bool) -> str | None:
+    if has_set_slot:
+        return None
+
+    data = _model_dump(classification)
+    route_name = str(data.get("route") or "").strip()
+    target_tool = str(data.get("target_tool") or "").strip()
+
+    if route_name == "tool" and target_tool:
+        return "tool"
+    if route_name == "ticket" and target_tool == "create_ticket":
+        return "ticket"
+    if route_name == "clarify":
+        return "clarify"
+    if route_name == "rag":
+        return "rag"
+    return None
+
+
+def _should_use_business_route(route_name: str | None, route_decision: Any | None) -> bool:
+    if route_name is None:
+        return False
+    if route_name != "rag":
+        return True
+
+    decision_data = _model_dump(route_decision)
+    execution_route = str(decision_data.get("execution_route") or "").strip()
+    return execution_route in {"", "rag", "fallback"}
 
 
 def _classify_intent(state: AgentState, message: str) -> Any | None:
@@ -318,6 +389,111 @@ def _ticket_arguments(
     }
 
 
+def _invoke_business_tool(state: AgentState, tool_name: str, arguments: dict[str, Any]) -> ToolCallResult:
+    try:
+        parsed_arguments = validate_tool_arguments(tool_name, arguments)
+    except Exception as exc:
+        return ToolCallResult(
+            tool_name=tool_name or "unknown",
+            success=False,
+            status="failed",
+            arguments=dict(arguments),
+            error=ToolError(
+                code="TOOL_ARGUMENT_ERROR",
+                message="Tool arguments do not match schema.",
+                retryable=False,
+                details={"error": str(exc)},
+            ),
+            latency_ms=0,
+            metadata={"source": "tool_router"},
+        )
+
+    service = _build_business_tool_service(state)
+    method = getattr(service, tool_name, None)
+    if method is None or not callable(method):
+        return ToolCallResult(
+            tool_name=tool_name or "unknown",
+            success=False,
+            status="failed",
+            arguments=parsed_arguments,
+            error=ToolError(
+                code="TOOL_NOT_FOUND",
+                message=f"Business tool is not registered: {tool_name}",
+                retryable=False,
+            ),
+            latency_ms=0,
+            metadata={"source": "tool_router"},
+        )
+
+    result = method(**parsed_arguments)
+    if isinstance(result, ToolCallResult):
+        return result
+    if hasattr(result, "model_validate"):
+        return ToolCallResult.model_validate(result)
+    if isinstance(result, dict):
+        return ToolCallResult.model_validate(result)
+    return ToolCallResult(
+        tool_name=tool_name,
+        success=False,
+        status="failed",
+        arguments=parsed_arguments,
+        error=ToolError(
+            code="TOOL_RETURN_ERROR",
+            message="Business tool returned an unsupported result type.",
+            retryable=False,
+            details={"result_type": result.__class__.__name__},
+        ),
+        latency_ms=0,
+        metadata={"source": "tool_router"},
+    )
+
+
+def _tool_success_text(result: dict[str, Any]) -> str:
+    tool_name = str(result.get("tool_name") or "").strip()
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+
+    if tool_name == "query_order":
+        items = data.get("items") if isinstance(data.get("items"), list) else []
+        item_names = "、".join(str(item.get("name")) for item in items if isinstance(item, dict) and item.get("name"))
+        return (
+            f"订单 {data.get('order_id')} 当前状态：{data.get('status')}，"
+            f"支付状态：{data.get('payment_status')}，金额：{data.get('total_amount')} {data.get('currency')}。"
+            + (f"商品：{item_names}。" if item_names else "")
+        )
+
+    if tool_name == "query_logistics":
+        return (
+            f"订单 {data.get('order_id')} 当前物流状态：{data.get('status')}，"
+            f"承运商：{data.get('carrier')}，运单号：{data.get('tracking_no')}，"
+            f"当前位置：{data.get('current_location')}，预计送达：{data.get('estimated_delivery')}。"
+        )
+
+    if tool_name == "create_ticket":
+        return f"已为你创建工单 {data.get('ticket_id')}，当前状态：{data.get('status')}，优先级：{data.get('priority')}。"
+
+    if tool_name == "create_invoice":
+        return (
+            f"已为订单 {data.get('order_id')} 创建电子发票，"
+            f"发票号：{data.get('invoice_id')}，抬头：{data.get('title')}。"
+        )
+
+    return "业务工具已执行完成。"
+
+
+def _tool_failure_text(result: dict[str, Any]) -> str:
+    error = result.get("error") if isinstance(result.get("error"), dict) else {}
+    code = str(error.get("code") or "TOOL_FAILURE")
+    if code == "ORDER_NOT_FOUND":
+        return "我没有查到这个订单，请确认订单号是否正确。"
+    if code == "LOGISTICS_NOT_FOUND":
+        return "我暂时没有查到该订单的物流信息，可能还未发货或物流暂未同步。"
+    if code == "ORDER_NOT_INVOICEABLE":
+        return "这个订单当前暂时不能开票，请确认订单是否已支付完成。"
+    if code == "TOOL_ARGUMENT_ERROR":
+        return "你提供的信息还不完整或格式不正确，请补充后我再继续处理。"
+    return "业务工具暂时不可用，我已经记录这次调用信息，稍后可以转人工继续处理。"
+
+
 def load_context(state: AgentState) -> AgentState:
     sender_id = str(state.get("sender_id") or "default")
     message = str(state.get("message") or "").strip()
@@ -421,6 +597,7 @@ def route(state: AgentState) -> AgentState:
     llm_generator = state.get("llm_generator")
     llm_enabled = bool(getattr(llm_generator, "enabled", False)) if llm_generator is not None else False
     intent_result: Any | None = state.get("intent_result")
+    business_classification: Any | None = state.get("business_classification")
     route_decision: Any | None = None
 
     if intent_result is not None:
@@ -430,7 +607,18 @@ def route(state: AgentState) -> AgentState:
             logger.exception("intent route policy failed: %s", exc)
             route_decision = None
 
-    if (
+    business_route_name = _business_route_name(
+        business_classification,
+        has_set_slot=_has_command_type(results, "set_slot"),
+    )
+
+    if _should_use_business_route(business_route_name, route_decision):
+        route_name = business_route_name
+        if route_name != "flow" and _has_command_type(results, "start_flow"):
+            _clear_started_flow(tracker)
+        if route_name == "clarify" and not reply_text:
+            reply_text = _business_clarify_reply(business_classification)
+    elif (
         route_decision is not None
         and intent_result is not None
         and getattr(intent_result, "intent_id", None) != "UNKNOWN"
@@ -646,6 +834,39 @@ def action(state: AgentState) -> AgentState:
     }
 
 
+def tool(state: AgentState) -> AgentState:
+    tracker = state.get("tracker")
+    sender_id = str(state.get("sender_id") or "default")
+    classification = _model_dump(state.get("business_classification"))
+    tool_name = str(classification.get("target_tool") or "").strip()
+    arguments = dict(classification.get("extracted_arguments") or {})
+
+    result = _invoke_business_tool(state, tool_name, arguments)
+    result_data = result.to_dict()
+    response_text = _tool_success_text(result_data) if result.success else _tool_failure_text(result_data)
+
+    if tracker is not None:
+        tracker.latest_action_name = tool_name or "business_tool"
+
+    return {
+        **state,
+        "route": "tool",
+        "tool_result": result_data,
+        "responses": [
+            {
+                "recipient_id": sender_id,
+                "text": response_text,
+                "metadata": {
+                    "source": "tool",
+                    "tool_name": result.tool_name,
+                    "tool_status": result.status,
+                    "tool_success": result.success,
+                },
+            }
+        ],
+    }
+
+
 def ticket(state: AgentState) -> AgentState:
     tracker = state.get("tracker")
     sender_id = str(state.get("sender_id") or "default")
@@ -655,6 +876,35 @@ def ticket(state: AgentState) -> AgentState:
 
     if not isinstance(ticket_service, TicketService):
         ticket_service = TicketService()
+
+    business_classification = _model_dump(state.get("business_classification"))
+    if str(business_classification.get("target_tool") or "") == "create_ticket":
+        arguments = dict(business_classification.get("extracted_arguments") or {})
+        result = _invoke_business_tool(state, "create_ticket", arguments)
+        result_data = result.to_dict()
+        ticket_result = result_data.get("data") if isinstance(result_data.get("data"), dict) else {}
+        response_text = _tool_success_text(result_data) if result.success else _tool_failure_text(result_data)
+        if tracker is not None:
+            tracker.latest_action_name = "create_ticket"
+        return {
+            **state,
+            "ticket": ticket_result,
+            "tool_result": result_data,
+            "responses": [
+                {
+                    "recipient_id": sender_id,
+                    "text": response_text,
+                    "metadata": {
+                        "source": "tool",
+                        "tool_name": "create_ticket",
+                        "tool_status": result.status,
+                        "tool_success": result.success,
+                        "ticket_id": ticket_result.get("ticket_id") if isinstance(ticket_result, dict) else None,
+                    },
+                }
+            ],
+            "route": "ticket",
+        }
 
     ticket_data = _first_command_data(llm_results, "ticket")
     ticket_text = str(ticket_data.get("text") or message)
@@ -733,6 +983,7 @@ def generate_response(state: AgentState) -> AgentState:
     reply_text = str(state.get("reply_text") or "").strip()
     responses = list(state.get("responses") or [])
     action_result = state.get("action_result") or {}
+    tool_result = state.get("tool_result") or {}
     ticket = state.get("ticket") or {}
     route_name = str(state.get("route") or "fallback")
     rag_matches = state.get("rag_matches") or []
@@ -747,20 +998,26 @@ def generate_response(state: AgentState) -> AgentState:
     )
     common_metadata.update(_intent_response_metadata(state.get("intent_result"), state.get("route_decision")))
     common_metadata.update(_business_response_metadata(state.get("business_classification")))
+    common_metadata.update(_tool_response_metadata(tool_result))
 
-    if reply_text and route_name == "chitchat":
+    if reply_text and route_name in {"chitchat", "clarify"}:
         responses = [
             {
                 "recipient_id": sender_id,
                 "text": reply_text,
-                "metadata": {"source": "llm", "command_type": "chitchat"},
+                "metadata": {"source": "llm" if route_name == "chitchat" else "business_router", "command_type": route_name},
             }
         ]
 
     if tracker is not None and responses:
         final_text = str(responses[0].get("text") or "")
         tracker.add_bot_message(final_text)
-        tracker.latest_action_name = str(action_result.get("metadata", {}).get("action") or tracker.latest_action_name or route_name)
+        tracker.latest_action_name = str(
+            action_result.get("metadata", {}).get("action")
+            or tool_result.get("tool_name")
+            or tracker.latest_action_name
+            or route_name
+        )
 
     final_responses = list(responses)
     if not final_responses:

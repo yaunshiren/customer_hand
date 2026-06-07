@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.tools.schemas import list_prompt_tool_schemas
+
 
 class CommandPromptBuilder:
     def build(
@@ -44,7 +46,10 @@ class CommandPromptBuilder:
                 "- 用户想查物流、快递、配送时，优先输出 start_flow，flow_id 为 logistics。",
                 "- 如果当前 active_flow 是 postsale 或 logistics，且用户输入像订单号，则输出 set_slot，name 为 order_id。",
                 "- 如果用户问退货规则、退款多久到账、售后条件，输出 knowledge_answer。",
-                "- 如果用户明确提供订单号并要求查询物流，可以输出 call_tool，tool_name 为 get_logistics_info。",
+                "- 如果用户明确提供订单号并要求查询物流，可以输出 call_tool，tool_name 为 query_logistics。",
+                "- 如果用户明确提供订单号并要求查询订单状态，可以输出 call_tool，tool_name 为 query_order。",
+                "- 如果用户明确投诉或需要人工跟进，可以输出 call_tool，tool_name 为 create_ticket。",
+                "- 如果用户明确提供订单号和发票抬头并要求开票，可以输出 call_tool，tool_name 为 create_invoice。",
                 "- 只有在明确需要人工介入时，才输出 ticket；不要因为普通售前、订单、物流、售后问题就直接输出 ticket。",
                 "- 触发 ticket 的典型场景：用户明确要求人工、反复表示没解决、知识库低置信度或无法回答、关键信息缺失导致流程卡住。",
                 "- ticket 必须包含 text 字段，优先填写用户原话；如果原话过长，可以保留最关键的一句归纳。",
@@ -171,13 +176,7 @@ class CommandPromptBuilder:
         ]
 
     def _default_tools(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "tool_name": "get_logistics_info",
-                "description": "根据订单号查询物流信息",
-                "arguments_schema": {"order_id": "string"},
-            }
-        ]
+        return list_prompt_tool_schemas()
 
     def _to_json(self, data: Any) -> str:
         return json.dumps(data, ensure_ascii=False, indent=2)

@@ -28,6 +28,7 @@ class Agent:
         self.llm_generator = LLMCommandGenerator()
         self.knowledge_answerer = KnowledgeAnswerer(docs_dir=knowledge_dir)
         self.ticket_service = ticket_service or TicketService()
+        self.business_tool_service = None
         self.intent_classifier = None
         self.intent_route_policy = None
         self.business_classifier = None
@@ -46,6 +47,7 @@ class Agent:
                 "llm_generator": self.llm_generator,
                 "knowledge_answerer": self.knowledge_answerer,
                 "ticket_service": self.ticket_service,
+                "business_tool_service": self.business_tool_service,
                 "intent_classifier": self.intent_classifier,
                 "intent_route_policy": self.intent_route_policy,
                 "business_classifier": self.business_classifier,
