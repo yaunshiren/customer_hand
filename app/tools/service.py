@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -9,6 +11,17 @@ from app.core.trace import get_trace_id
 from app.persistence.tool_recorder import record_tool_trace
 from app.tools.mock_store import MockCustomerServiceStore, MockToolError
 from app.tools.models import ToolCallResult, ToolError
+
+
+@dataclass(frozen=True)
+class ToolExecutionPolicy:
+    timeout_seconds: float = 3.0
+    max_retries: int = 1
+    retry_backoff_seconds: float = 0.0
+
+
+class _EmptyToolResultError(Exception):
+    pass
 
 
 class QueryOrderArgs(BaseModel):
@@ -52,8 +65,14 @@ class CreateInvoiceArgs(BaseModel):
 
 
 class MockBusinessToolService:
-    def __init__(self, store: MockCustomerServiceStore | None = None) -> None:
+    def __init__(
+        self,
+        store: MockCustomerServiceStore | None = None,
+        *,
+        policy: ToolExecutionPolicy | None = None,
+    ) -> None:
         self.store = store or MockCustomerServiceStore()
+        self.policy = policy or ToolExecutionPolicy()
 
     def query_order(self, order_id: str, *, trace_id: str | None = None) -> ToolCallResult:
         return self._run(
@@ -114,21 +133,11 @@ class MockBusinessToolService:
         started_at = time.perf_counter()
         effective_trace_id = trace_id or get_trace_id()
         arguments = dict(raw_arguments)
+        attempts: list[dict[str, Any]] = []
 
         try:
             parsed_args = args_model.model_validate(raw_arguments)
             arguments = parsed_args.model_dump(mode="json")
-            data = operation(parsed_args)
-            result = ToolCallResult(
-                tool_name=tool_name,
-                success=True,
-                status="success",
-                arguments=arguments,
-                data=data,
-                latency_ms=_elapsed_ms(started_at),
-                trace_id=effective_trace_id,
-                metadata={"source": "mock", "mock": True},
-            )
         except ValidationError as exc:
             result = self._failed_result(
                 tool_name=tool_name,
@@ -141,32 +150,17 @@ class MockBusinessToolService:
                     retryable=False,
                     details={"errors": _validation_errors(exc)},
                 ),
+                attempts=attempts,
             )
-        except MockToolError as exc:
-            result = self._failed_result(
+        else:
+            result = self._execute_with_policy(
                 tool_name=tool_name,
                 arguments=arguments,
+                parsed_args=parsed_args,
+                operation=operation,
                 started_at=started_at,
                 trace_id=effective_trace_id,
-                error=ToolError(
-                    code=exc.code,
-                    message=exc.message,
-                    retryable=exc.retryable,
-                    details=exc.details,
-                ),
-            )
-        except Exception as exc:
-            result = self._failed_result(
-                tool_name=tool_name,
-                arguments=arguments,
-                started_at=started_at,
-                trace_id=effective_trace_id,
-                error=ToolError(
-                    code="TOOL_FAILURE",
-                    message=str(exc) or exc.__class__.__name__,
-                    retryable=True,
-                    details={"error_type": exc.__class__.__name__},
-                ),
+                attempts=attempts,
             )
 
         record_tool_trace(
@@ -187,6 +181,7 @@ class MockBusinessToolService:
         started_at: float,
         trace_id: str | None,
         error: ToolError,
+        attempts: list[dict[str, Any]] | None = None,
     ) -> ToolCallResult:
         return ToolCallResult(
             tool_name=tool_name,
@@ -197,8 +192,124 @@ class MockBusinessToolService:
             error=error,
             latency_ms=_elapsed_ms(started_at),
             trace_id=trace_id,
-            metadata={"source": "mock", "mock": True},
+            metadata=self._metadata(attempts or []),
         )
+
+    def _execute_with_policy(
+        self,
+        *,
+        tool_name: str,
+        arguments: dict[str, Any],
+        parsed_args: Any,
+        operation: Callable[[Any], dict[str, Any]],
+        started_at: float,
+        trace_id: str | None,
+        attempts: list[dict[str, Any]],
+    ) -> ToolCallResult:
+        max_attempts = max(1, self.policy.max_retries + 1)
+        last_error: ToolError | None = None
+
+        for attempt_index in range(1, max_attempts + 1):
+            attempt_started_at = time.perf_counter()
+            data: dict[str, Any] | None = None
+            try:
+                data = self._execute_operation(operation, parsed_args)
+                if _is_empty_tool_data(data):
+                    raise _EmptyToolResultError()
+
+                attempts.append(
+                    {
+                        "attempt": attempt_index,
+                        "status": "success",
+                        "latency_ms": _elapsed_ms(attempt_started_at),
+                    }
+                )
+                return ToolCallResult(
+                    tool_name=tool_name,
+                    success=True,
+                    status="success",
+                    arguments=arguments,
+                    data=data,
+                    latency_ms=_elapsed_ms(started_at),
+                    trace_id=trace_id,
+                    metadata=self._metadata(attempts),
+                )
+            except TimeoutError:
+                last_error = ToolError(
+                    code="TOOL_TIMEOUT",
+                    message="Tool execution timed out.",
+                    retryable=attempt_index < max_attempts,
+                    details={"timeout_seconds": self.policy.timeout_seconds},
+                )
+            except _EmptyToolResultError:
+                last_error = ToolError(
+                    code="TOOL_EMPTY_RESULT",
+                    message="Tool returned an empty result.",
+                    retryable=attempt_index < max_attempts,
+                )
+            except MockToolError as exc:
+                last_error = ToolError(
+                    code=exc.code,
+                    message=exc.message,
+                    retryable=exc.retryable and attempt_index < max_attempts,
+                    details=exc.details,
+                )
+            except Exception as exc:
+                last_error = ToolError(
+                    code="TOOL_FAILURE",
+                    message=str(exc) or exc.__class__.__name__,
+                    retryable=attempt_index < max_attempts,
+                    details={"error_type": exc.__class__.__name__},
+                )
+
+            attempts.append(
+                {
+                    "attempt": attempt_index,
+                    "status": "failed",
+                    "latency_ms": _elapsed_ms(attempt_started_at),
+                    "error_code": last_error.code if last_error else "TOOL_FAILURE",
+                }
+            )
+            if last_error is None or not last_error.retryable:
+                break
+            if self.policy.retry_backoff_seconds > 0:
+                time.sleep(self.policy.retry_backoff_seconds)
+
+        return self._failed_result(
+            tool_name=tool_name,
+            arguments=arguments,
+            started_at=started_at,
+            trace_id=trace_id,
+            error=last_error
+            or ToolError(
+                code="TOOL_FAILURE",
+                message="Tool execution failed.",
+                retryable=False,
+            ),
+            attempts=attempts,
+        )
+
+    def _execute_operation(self, operation: Callable[[Any], dict[str, Any]], parsed_args: Any) -> dict[str, Any]:
+        timeout_seconds = max(0.001, float(self.policy.timeout_seconds))
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(operation, parsed_args)
+        try:
+            return future.result(timeout=timeout_seconds)
+        except TimeoutError:
+            future.cancel()
+            raise
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    def _metadata(self, attempts: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "source": "mock",
+            "mock": True,
+            "attempt_count": len(attempts),
+            "max_retries": self.policy.max_retries,
+            "timeout_seconds": self.policy.timeout_seconds,
+            "attempts": attempts,
+        }
 
 
 _default_service = MockBusinessToolService()
@@ -235,6 +346,14 @@ def _clean_required_text(value: str, field_name: str) -> str:
 
 def _elapsed_ms(started_at: float) -> int:
     return max(0, int((time.perf_counter() - started_at) * 1000))
+
+
+def _is_empty_tool_data(data: Any) -> bool:
+    if data is None:
+        return True
+    if isinstance(data, dict) and not data:
+        return True
+    return False
 
 
 def _validation_errors(exc: ValidationError) -> list[dict[str, Any]]:

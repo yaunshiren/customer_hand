@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import app.tools.service as tool_service_module
-from app.tools import MockBusinessToolService, create_ticket, query_order
+from app.tools import MockBusinessToolService, MockCustomerServiceStore, MockToolError, ToolExecutionPolicy, create_ticket, query_order
 
 
 def test_query_order_returns_structured_result() -> None:
@@ -20,7 +21,9 @@ def test_query_order_returns_structured_result() -> None:
     assert result.data["status"] == "shipped"
     assert result.data["items"][0]["sku"] == "PHONE-14PRO-256-BLACK"
     assert result.error is None
-    assert result.metadata == {"source": "mock", "mock": True}
+    assert result.metadata["source"] == "mock"
+    assert result.metadata["mock"] is True
+    assert result.metadata["attempt_count"] == 1
 
 
 def test_query_logistics_returns_structured_result() -> None:
@@ -123,8 +126,111 @@ def test_tool_call_records_trace(monkeypatch) -> None:
     assert traces[0]["tool_name"] == "query_logistics"
     assert traces[0]["arguments_json"] == {"order_id": "10001"}
     assert traces[0]["result_json"]["success"] is True
+    assert traces[0]["result_json"]["metadata"]["attempt_count"] == 1
     assert traces[0]["status"] == "success"
     assert traces[0]["trace_id"] == "trace_mock_tool_001"
+
+
+def test_tool_timeout_returns_failed_result_and_records_attempts(monkeypatch) -> None:
+    class SlowStore(MockCustomerServiceStore):
+        def get_logistics(self, order_id: str) -> dict[str, Any]:
+            time.sleep(0.05)
+            return super().get_logistics(order_id)
+
+    traces: list[dict[str, Any]] = []
+    monkeypatch.setattr(tool_service_module, "record_tool_trace", lambda **kwargs: traces.append(kwargs))
+    service = MockBusinessToolService(
+        store=SlowStore(),
+        policy=ToolExecutionPolicy(timeout_seconds=0.001, max_retries=1),
+    )
+
+    result = service.query_logistics("10001", trace_id="trace_timeout")
+
+    assert result.success is False
+    assert result.error is not None
+    assert result.error.code == "TOOL_TIMEOUT"
+    assert result.metadata["attempt_count"] == 2
+    assert [item["error_code"] for item in result.metadata["attempts"]] == ["TOOL_TIMEOUT", "TOOL_TIMEOUT"]
+    assert traces[0]["result_json"]["error"]["code"] == "TOOL_TIMEOUT"
+    assert traces[0]["result_json"]["metadata"]["attempt_count"] == 2
+
+
+def test_empty_tool_result_returns_failed_result(monkeypatch) -> None:
+    class EmptyStore(MockCustomerServiceStore):
+        def get_order(self, order_id: str) -> dict[str, Any]:
+            return {}
+
+    traces: list[dict[str, Any]] = []
+    monkeypatch.setattr(tool_service_module, "record_tool_trace", lambda **kwargs: traces.append(kwargs))
+    service = MockBusinessToolService(
+        store=EmptyStore(),
+        policy=ToolExecutionPolicy(timeout_seconds=1.0, max_retries=0),
+    )
+
+    result = service.query_order("10001", trace_id="trace_empty")
+
+    assert result.success is False
+    assert result.error is not None
+    assert result.error.code == "TOOL_EMPTY_RESULT"
+    assert result.data is None
+    assert result.metadata["attempt_count"] == 1
+    assert traces[0]["status"] == "failed"
+
+
+def test_tool_exception_is_captured_without_crashing(monkeypatch) -> None:
+    class FailingStore(MockCustomerServiceStore):
+        def get_logistics(self, order_id: str) -> dict[str, Any]:
+            raise RuntimeError("logistics backend down")
+
+    traces: list[dict[str, Any]] = []
+    monkeypatch.setattr(tool_service_module, "record_tool_trace", lambda **kwargs: traces.append(kwargs))
+    service = MockBusinessToolService(
+        store=FailingStore(),
+        policy=ToolExecutionPolicy(timeout_seconds=1.0, max_retries=1),
+    )
+
+    result = service.query_logistics("10001", trace_id="trace_exception")
+
+    assert result.success is False
+    assert result.error is not None
+    assert result.error.code == "TOOL_FAILURE"
+    assert result.error.details["error_type"] == "RuntimeError"
+    assert result.metadata["attempt_count"] == 2
+    assert traces[0]["result_json"]["error"]["code"] == "TOOL_FAILURE"
+
+
+def test_retryable_business_error_can_recover(monkeypatch) -> None:
+    class FlakyStore(MockCustomerServiceStore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def get_logistics(self, order_id: str) -> dict[str, Any]:
+            self.calls += 1
+            if self.calls == 1:
+                raise MockToolError(
+                    code="LOGISTICS_TEMPORARY_UNAVAILABLE",
+                    message="temporary logistics outage",
+                    retryable=True,
+                )
+            return super().get_logistics(order_id)
+
+    traces: list[dict[str, Any]] = []
+    monkeypatch.setattr(tool_service_module, "record_tool_trace", lambda **kwargs: traces.append(kwargs))
+    store = FlakyStore()
+    service = MockBusinessToolService(
+        store=store,
+        policy=ToolExecutionPolicy(timeout_seconds=1.0, max_retries=1),
+    )
+
+    result = service.query_logistics("10001", trace_id="trace_retry_success")
+
+    assert result.success is True
+    assert store.calls == 2
+    assert result.metadata["attempt_count"] == 2
+    assert result.metadata["attempts"][0]["error_code"] == "LOGISTICS_TEMPORARY_UNAVAILABLE"
+    assert result.metadata["attempts"][1]["status"] == "success"
+    assert traces[0]["status"] == "success"
 
 
 def test_module_level_functions_are_callable() -> None:

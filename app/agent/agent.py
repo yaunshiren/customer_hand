@@ -6,6 +6,7 @@ from typing import Any
 
 from app.actions.builtin import register_builtin_actions
 from app.agent.graph.builder import run_agent_graph
+from app.agent.tool_safety import AgentToolSafetyPolicy
 from app.core.tracker_store import InMemoryTrackerStore
 from app.dialogue.llm_generator import LLMCommandGenerator
 from app.rag.answerer import KnowledgeAnswerer
@@ -21,6 +22,7 @@ class Agent:
         flows: dict[str, Any] | None = None,
         knowledge_dir: Path | None = None,
         ticket_service: TicketService | None = None,
+        tool_safety_policy: AgentToolSafetyPolicy | None = None,
     ) -> None:
         register_builtin_actions()
         self.tracker_store = tracker_store
@@ -29,6 +31,7 @@ class Agent:
         self.knowledge_answerer = KnowledgeAnswerer(docs_dir=knowledge_dir)
         self.ticket_service = ticket_service or TicketService()
         self.business_tool_service = None
+        self.tool_safety_policy = tool_safety_policy or AgentToolSafetyPolicy()
         self.intent_classifier = None
         self.intent_route_policy = None
         self.business_classifier = None
@@ -48,6 +51,7 @@ class Agent:
                 "knowledge_answerer": self.knowledge_answerer,
                 "ticket_service": self.ticket_service,
                 "business_tool_service": self.business_tool_service,
+                "tool_safety_policy": self.tool_safety_policy,
                 "intent_classifier": self.intent_classifier,
                 "intent_route_policy": self.intent_route_policy,
                 "business_classifier": self.business_classifier,

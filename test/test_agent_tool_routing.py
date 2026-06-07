@@ -74,17 +74,18 @@ def test_invoice_policy_uses_rag_instead_of_tool() -> None:
     assert response[0]["text"] == "测试知识库回答"
 
 
-def test_invoice_create_with_required_arguments_calls_business_tool() -> None:
+def test_invoice_create_with_required_arguments_requires_confirmation() -> None:
     response = _agent().handle_message("订单 10001 开公司发票", "tool_invoice_user")
     metadata = response[0]["metadata"]
 
-    assert metadata["route"] == "tool"
+    assert metadata["route"] == "clarify"
     assert metadata["business_question_type"] == "invoice_create"
     assert metadata["business_tool"] == "create_invoice"
-    assert metadata["tool_name"] == "create_invoice"
-    assert metadata["tool_success"] is True
-    assert metadata["tool_arguments"] == {"order_id": "10001", "title": "公司"}
+    assert metadata["business_requires_confirmation"] is True
+    assert metadata.get("tool_name") is None
+    assert metadata["tool_safety_decision"] == "confirmation_required"
     assert "发票" in response[0]["text"]
+    assert "确认" in response[0]["text"]
 
 
 def test_tool_failure_returns_friendly_response_without_crashing() -> None:

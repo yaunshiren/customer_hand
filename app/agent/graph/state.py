@@ -26,6 +26,7 @@ class AgentState(TypedDict, total=False):
     knowledge_answerer: Any
     ticket_service: Any
     business_tool_service: Any
+    tool_safety_policy: Any
     intent_classifier: Any
     intent_route_policy: Any
     business_classifier: Any
@@ -54,6 +55,10 @@ class AgentState(TypedDict, total=False):
     # Action / ticket outputs.
     action_result: dict[str, Any]
     tool_result: dict[str, Any]
+    tool_safety: dict[str, Any]
+    tool_call_count: int
+    tool_call_fingerprints: list[str]
+    confirmed_tool_call: dict[str, Any]
     ticket: dict[str, Any]
 
     # Final response and error propagation.

@@ -8,6 +8,13 @@ from pathlib import Path
 from typing import Any
 
 from app.agent.graph.state import AgentState
+from app.agent.tool_safety import (
+    PENDING_TOOL_CONFIRMATION_SLOT,
+    AgentToolSafetyPolicy,
+    fingerprint_tool_call,
+    is_cancellation_message,
+    is_confirmation_message,
+)
 from app.persistence.tool_recorder import record_tool_trace
 from app.core.tracker import DialogueStateTracker
 from app.dialogue.llm_generator import LLMCommandGenerator
@@ -20,7 +27,14 @@ from app.intent import BusinessQuestionClassifier, IntentClassifier, IntentRoute
 from app.rag.citation import CitationBuilder
 from app.tickets import TicketService
 from app.actions.builtin import register_builtin_actions
-from app.tools import MockBusinessToolService, ToolCallResult, ToolError, validate_tool_arguments
+from app.tools import (
+    MockBusinessToolService,
+    ToolCallResult,
+    ToolError,
+    ToolExecutionPolicy,
+    get_tool_schema,
+    validate_tool_arguments,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,11 +104,30 @@ def _build_business_question_classifier(state: AgentState) -> Any:
     return BusinessQuestionClassifier()
 
 
+def _build_tool_safety_policy(state: AgentState) -> AgentToolSafetyPolicy:
+    policy = state.get("tool_safety_policy")
+    if isinstance(policy, AgentToolSafetyPolicy):
+        return policy
+    if isinstance(policy, dict):
+        try:
+            return AgentToolSafetyPolicy(**policy)
+        except TypeError:
+            logger.warning("invalid tool safety policy ignored")
+    return AgentToolSafetyPolicy()
+
+
 def _build_business_tool_service(state: AgentState) -> Any:
     service = state.get("business_tool_service")
     if service is not None:
         return service
-    return MockBusinessToolService()
+    policy = _build_tool_safety_policy(state)
+    return MockBusinessToolService(
+        policy=ToolExecutionPolicy(
+            timeout_seconds=policy.tool_timeout_seconds,
+            max_retries=policy.max_tool_retries,
+            retry_backoff_seconds=policy.retry_backoff_seconds,
+        )
+    )
 
 
 def _clear_started_flow(tracker: Any) -> None:
@@ -122,6 +155,50 @@ def _clear_started_flow(tracker: Any) -> None:
         tracker["flow_status"] = "idle"
         tracker["flow_step_index"] = 0
         tracker["slot_to_collect"] = None
+
+
+def _tracker_get_slot(tracker: Any, key: str) -> Any | None:
+    if tracker is None:
+        return None
+    if hasattr(tracker, "get_slot"):
+        return tracker.get_slot(key)
+    if isinstance(tracker, dict):
+        slots = tracker.get("slots")
+        if isinstance(slots, dict):
+            return slots.get(key)
+        return tracker.get(key)
+    slots = getattr(tracker, "slots", None)
+    if isinstance(slots, dict):
+        return slots.get(key)
+    return None
+
+
+def _tracker_set_slot(tracker: Any, key: str, value: Any) -> None:
+    if tracker is None:
+        return
+    if hasattr(tracker, "set_slot"):
+        tracker.set_slot(key, value)
+        return
+    if isinstance(tracker, dict):
+        tracker.setdefault("slots", {})[key] = value
+        return
+    slots = getattr(tracker, "slots", None)
+    if isinstance(slots, dict):
+        slots[key] = value
+
+
+def _tracker_clear_slot(tracker: Any, key: str) -> None:
+    if tracker is None:
+        return
+    slots = getattr(tracker, "slots", None)
+    if isinstance(slots, dict):
+        slots.pop(key, None)
+        return
+    if isinstance(tracker, dict):
+        raw_slots = tracker.get("slots")
+        if isinstance(raw_slots, dict):
+            raw_slots.pop(key, None)
+        tracker.pop(key, None)
 
 
 def _graph_route_from_execution(execution_route: str) -> str:
@@ -193,6 +270,7 @@ def _tool_response_metadata(tool_result: Any) -> dict[str, Any]:
 
     error = data.get("error")
     error_code = error.get("code") if isinstance(error, dict) else None
+    result_metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
     return {
         "tool_name": data.get("tool_name"),
         "tool_success": data.get("success"),
@@ -200,6 +278,21 @@ def _tool_response_metadata(tool_result: Any) -> dict[str, Any]:
         "tool_arguments": data.get("arguments") or {},
         "tool_error_code": error_code,
         "tool_latency_ms": data.get("latency_ms"),
+        "tool_attempt_count": result_metadata.get("attempt_count"),
+        "tool_timeout_seconds": result_metadata.get("timeout_seconds"),
+    }
+
+
+def _tool_safety_response_metadata(tool_safety: Any) -> dict[str, Any]:
+    data = _model_dump(tool_safety)
+    if not data:
+        return {}
+
+    return {
+        "tool_safety_decision": data.get("decision"),
+        "tool_safety_reason": data.get("reason"),
+        "pending_tool_name": data.get("tool_name"),
+        "pending_tool_arguments": data.get("arguments") or {},
     }
 
 
@@ -389,62 +482,258 @@ def _ticket_arguments(
     }
 
 
+def _get_tool_schema_data(tool_name: str) -> dict[str, Any]:
+    try:
+        return get_tool_schema(tool_name).model_dump(mode="json")
+    except Exception:
+        return {}
+
+
+def _tool_requires_confirmation(tool_name: str, classification: Any, policy: AgentToolSafetyPolicy) -> bool:
+    data = _model_dump(classification)
+    if bool(data.get("requires_confirmation")):
+        return True
+
+    schema = _get_tool_schema_data(tool_name)
+    if bool(schema.get("requires_confirmation")):
+        return True
+
+    risk_level = str(schema.get("risk_level") or data.get("risk_level") or "low").strip()
+    return risk_level in set(policy.high_risk_levels)
+
+
+def _pending_tool_confirmation(tracker: Any) -> dict[str, Any]:
+    pending = _tracker_get_slot(tracker, PENDING_TOOL_CONFIRMATION_SLOT)
+    return dict(pending) if isinstance(pending, dict) else {}
+
+
+def _pending_confirmation_expired(pending: dict[str, Any], policy: AgentToolSafetyPolicy) -> bool:
+    created_at = pending.get("created_at")
+    if created_at is None:
+        return False
+    try:
+        return (time.time() - float(created_at)) > policy.confirmation_ttl_seconds
+    except (TypeError, ValueError):
+        return True
+
+
+def _build_pending_tool_confirmation(
+    *,
+    tool_name: str,
+    arguments: dict[str, Any],
+    classification: Any,
+    message: str,
+) -> dict[str, Any]:
+    data = _model_dump(classification)
+    schema = _get_tool_schema_data(tool_name)
+    risk_level = str(data.get("risk_level") or schema.get("risk_level") or "medium")
+    return {
+        "tool_name": tool_name,
+        "arguments": dict(arguments),
+        "fingerprint": fingerprint_tool_call(tool_name, arguments),
+        "question_type": data.get("question_type") or "unknown",
+        "required_arguments": data.get("required_arguments") or list(arguments.keys()),
+        "risk_level": risk_level,
+        "source_message": message,
+        "created_at": time.time(),
+    }
+
+
+def _business_classification_from_pending(pending: dict[str, Any]) -> dict[str, Any]:
+    arguments = dict(pending.get("arguments") or {})
+    return {
+        "question_type": pending.get("question_type") or "unknown",
+        "route": "tool",
+        "confidence": 1.0,
+        "target_tool": pending.get("tool_name"),
+        "required_arguments": pending.get("required_arguments") or list(arguments.keys()),
+        "missing_arguments": [],
+        "extracted_arguments": arguments,
+        "requires_rag": False,
+        "requires_confirmation": True,
+        "risk_level": pending.get("risk_level") or "medium",
+        "signals": ["confirmed_tool_call"],
+        "reason": "user confirmed pending high-risk tool call",
+        "source": "tool_confirmation",
+    }
+
+
+def _tool_confirmation_reply(pending: dict[str, Any]) -> str:
+    tool_name = str(pending.get("tool_name") or "").strip()
+    arguments = dict(pending.get("arguments") or {})
+    if tool_name == "create_invoice":
+        return (
+            f"请确认：是否为订单 {arguments.get('order_id')} "
+            f"开具抬头为“{arguments.get('title')}”的发票？回复“确认”后我再执行。"
+        )
+    return f"这个操作需要二次确认。请确认是否执行 {tool_name}：{arguments}？回复“确认”后我再执行。"
+
+
+def _tool_confirmation_cancel_reply(pending: dict[str, Any]) -> str:
+    tool_name = str(pending.get("tool_name") or "业务操作").strip()
+    return f"已取消本次 {tool_name} 操作，没有执行工具调用。"
+
+
+def _router_failed_tool_result(
+    *,
+    tool_name: str,
+    arguments: dict[str, Any],
+    started_at: float,
+    error: ToolError,
+    attempt_count: int,
+    metadata: dict[str, Any] | None = None,
+) -> ToolCallResult:
+    result = ToolCallResult(
+        tool_name=tool_name or "unknown",
+        success=False,
+        status="failed",
+        arguments=arguments,
+        error=error,
+        latency_ms=_elapsed_ms(started_at),
+        metadata={
+            "source": "tool_router",
+            "attempt_count": attempt_count,
+            "attempts": [],
+            **(metadata or {}),
+        },
+    )
+    record_tool_trace(
+        tool_name=result.tool_name,
+        arguments_json=result.arguments,
+        result_json=result.to_dict(),
+        status=result.status,
+        latency_ms=result.latency_ms,
+    )
+    return result
+
+
+def _check_tool_call_safety(
+    state: AgentState,
+    *,
+    tool_name: str,
+    arguments: dict[str, Any],
+    started_at: float,
+) -> ToolCallResult | None:
+    policy = _build_tool_safety_policy(state)
+    fingerprint = fingerprint_tool_call(tool_name, arguments)
+    fingerprints = state.setdefault("tool_call_fingerprints", [])
+    if not isinstance(fingerprints, list):
+        fingerprints = []
+        state["tool_call_fingerprints"] = fingerprints
+
+    if policy.duplicate_call_detection and fingerprint in fingerprints:
+        return _router_failed_tool_result(
+            tool_name=tool_name,
+            arguments=arguments,
+            started_at=started_at,
+            error=ToolError(
+                code="TOOL_REPEATED_CALL",
+                message="Repeated tool call detected.",
+                retryable=False,
+                details={"fingerprint": fingerprint},
+            ),
+            attempt_count=0,
+            metadata={"safety_reason": "duplicate_tool_call"},
+        )
+
+    call_count = int(state.get("tool_call_count") or 0)
+    max_calls = max(1, int(policy.max_tool_calls_per_turn))
+    if call_count >= max_calls:
+        return _router_failed_tool_result(
+            tool_name=tool_name,
+            arguments=arguments,
+            started_at=started_at,
+            error=ToolError(
+                code="TOOL_CALL_LIMIT_EXCEEDED",
+                message="Maximum tool calls per turn exceeded.",
+                retryable=False,
+                details={"max_tool_calls_per_turn": max_calls},
+            ),
+            attempt_count=0,
+            metadata={"safety_reason": "max_tool_calls_per_turn"},
+        )
+
+    fingerprints.append(fingerprint)
+    state["tool_call_count"] = call_count + 1
+    return None
+
+
 def _invoke_business_tool(state: AgentState, tool_name: str, arguments: dict[str, Any]) -> ToolCallResult:
+    started_at = time.perf_counter()
     try:
         parsed_arguments = validate_tool_arguments(tool_name, arguments)
     except Exception as exc:
-        return ToolCallResult(
+        return _router_failed_tool_result(
             tool_name=tool_name or "unknown",
-            success=False,
-            status="failed",
             arguments=dict(arguments),
+            started_at=started_at,
             error=ToolError(
                 code="TOOL_ARGUMENT_ERROR",
                 message="Tool arguments do not match schema.",
                 retryable=False,
                 details={"error": str(exc)},
             ),
-            latency_ms=0,
-            metadata={"source": "tool_router"},
+            attempt_count=0,
         )
+
+    safety_result = _check_tool_call_safety(
+        state,
+        tool_name=tool_name,
+        arguments=parsed_arguments,
+        started_at=started_at,
+    )
+    if safety_result is not None:
+        return safety_result
 
     service = _build_business_tool_service(state)
     method = getattr(service, tool_name, None)
     if method is None or not callable(method):
-        return ToolCallResult(
+        return _router_failed_tool_result(
             tool_name=tool_name or "unknown",
-            success=False,
-            status="failed",
             arguments=parsed_arguments,
+            started_at=started_at,
             error=ToolError(
                 code="TOOL_NOT_FOUND",
                 message=f"Business tool is not registered: {tool_name}",
                 retryable=False,
             ),
-            latency_ms=0,
-            metadata={"source": "tool_router"},
+            attempt_count=0,
         )
 
-    result = method(**parsed_arguments)
+    try:
+        result = method(**parsed_arguments)
+    except Exception as exc:
+        logger.exception("business tool invocation failed: %s", exc)
+        return _router_failed_tool_result(
+            tool_name=tool_name,
+            arguments=parsed_arguments,
+            started_at=started_at,
+            error=ToolError(
+                code="TOOL_FAILURE",
+                message=str(exc) or exc.__class__.__name__,
+                retryable=False,
+                details={"error_type": exc.__class__.__name__},
+            ),
+            attempt_count=1,
+        )
+
     if isinstance(result, ToolCallResult):
         return result
     if hasattr(result, "model_validate"):
         return ToolCallResult.model_validate(result)
     if isinstance(result, dict):
         return ToolCallResult.model_validate(result)
-    return ToolCallResult(
+    return _router_failed_tool_result(
         tool_name=tool_name,
-        success=False,
-        status="failed",
         arguments=parsed_arguments,
+        started_at=started_at,
         error=ToolError(
             code="TOOL_RETURN_ERROR",
             message="Business tool returned an unsupported result type.",
             retryable=False,
             details={"result_type": result.__class__.__name__},
         ),
-        latency_ms=0,
-        metadata={"source": "tool_router"},
+        attempt_count=1,
     )
 
 
@@ -483,6 +772,14 @@ def _tool_success_text(result: dict[str, Any]) -> str:
 def _tool_failure_text(result: dict[str, Any]) -> str:
     error = result.get("error") if isinstance(result.get("error"), dict) else {}
     code = str(error.get("code") or "TOOL_FAILURE")
+    if code == "TOOL_TIMEOUT":
+        return "业务系统响应超时，我已经记录这次调用信息，稍后可以转人工继续处理。"
+    if code == "TOOL_EMPTY_RESULT":
+        return "我暂时没有查到可用结果，已经记录这次调用信息，稍后可以转人工继续处理。"
+    if code == "TOOL_REPEATED_CALL":
+        return "检测到重复的工具调用。为避免重复处理，我已经停止执行本次工具调用。"
+    if code == "TOOL_CALL_LIMIT_EXCEEDED":
+        return "本轮工具调用次数已达到安全上限。为避免重复执行，我已经停止继续调用工具。"
     if code == "ORDER_NOT_FOUND":
         return "我没有查到这个订单，请确认订单号是否正确。"
     if code == "LOGISTICS_NOT_FOUND":
@@ -599,6 +896,8 @@ def route(state: AgentState) -> AgentState:
     intent_result: Any | None = state.get("intent_result")
     business_classification: Any | None = state.get("business_classification")
     route_decision: Any | None = None
+    tool_safety_policy = _build_tool_safety_policy(state)
+    tool_safety: dict[str, Any] = {}
 
     if intent_result is not None:
         try:
@@ -607,10 +906,74 @@ def route(state: AgentState) -> AgentState:
             logger.exception("intent route policy failed: %s", exc)
             route_decision = None
 
+    pending_confirmation = _pending_tool_confirmation(tracker)
+    if pending_confirmation and _pending_confirmation_expired(pending_confirmation, tool_safety_policy):
+        _tracker_clear_slot(tracker, PENDING_TOOL_CONFIRMATION_SLOT)
+        pending_confirmation = {}
+
+    if pending_confirmation and is_cancellation_message(message, tool_safety_policy):
+        _tracker_clear_slot(tracker, PENDING_TOOL_CONFIRMATION_SLOT)
+        reply_text = _tool_confirmation_cancel_reply(pending_confirmation)
+        return {
+            **state,
+            "route": "clarify",
+            "reply_text": reply_text,
+            "intent_result": _model_dump(intent_result),
+            "route_decision": _model_dump(route_decision),
+            "business_classification": _model_dump(business_classification),
+            "tool_safety": {
+                "decision": "confirmation_cancelled",
+                "reason": "user_cancelled_pending_tool",
+                "tool_name": pending_confirmation.get("tool_name"),
+                "arguments": pending_confirmation.get("arguments") or {},
+            },
+        }
+
+    if pending_confirmation and is_confirmation_message(message, tool_safety_policy):
+        business_classification = _business_classification_from_pending(pending_confirmation)
+        _tracker_clear_slot(tracker, PENDING_TOOL_CONFIRMATION_SLOT)
+        tool_safety = {
+            "decision": "confirmed",
+            "reason": "user_confirmed_pending_tool",
+            "tool_name": pending_confirmation.get("tool_name"),
+            "arguments": pending_confirmation.get("arguments") or {},
+        }
+
     business_route_name = _business_route_name(
         business_classification,
         has_set_slot=_has_command_type(results, "set_slot"),
     )
+
+    if business_route_name == "tool":
+        classification_data = _model_dump(business_classification)
+        candidate_tool = str(classification_data.get("target_tool") or "").strip()
+        candidate_arguments = dict(classification_data.get("extracted_arguments") or {})
+        if tool_safety.get("decision") != "confirmed" and _tool_requires_confirmation(
+            candidate_tool,
+            business_classification,
+            tool_safety_policy,
+        ):
+            pending = _build_pending_tool_confirmation(
+                tool_name=candidate_tool,
+                arguments=candidate_arguments,
+                classification=business_classification,
+                message=message,
+            )
+            _tracker_set_slot(tracker, PENDING_TOOL_CONFIRMATION_SLOT, pending)
+            return {
+                **state,
+                "route": "clarify",
+                "reply_text": _tool_confirmation_reply(pending),
+                "intent_result": _model_dump(intent_result),
+                "route_decision": _model_dump(route_decision),
+                "business_classification": _model_dump(business_classification),
+                "tool_safety": {
+                    "decision": "confirmation_required",
+                    "reason": "high_risk_tool_requires_confirmation",
+                    "tool_name": candidate_tool,
+                    "arguments": candidate_arguments,
+                },
+            }
 
     if _should_use_business_route(business_route_name, route_decision):
         route_name = business_route_name
@@ -655,7 +1018,8 @@ def route(state: AgentState) -> AgentState:
         "reply_text": reply_text,
         "intent_result": _model_dump(intent_result),
         "route_decision": _model_dump(route_decision),
-        "business_classification": _model_dump(state.get("business_classification")),
+        "business_classification": _model_dump(business_classification),
+        "tool_safety": tool_safety,
     }
 
 
@@ -999,6 +1363,7 @@ def generate_response(state: AgentState) -> AgentState:
     common_metadata.update(_intent_response_metadata(state.get("intent_result"), state.get("route_decision")))
     common_metadata.update(_business_response_metadata(state.get("business_classification")))
     common_metadata.update(_tool_response_metadata(tool_result))
+    common_metadata.update(_tool_safety_response_metadata(state.get("tool_safety")))
 
     if reply_text and route_name in {"chitchat", "clarify"}:
         responses = [
