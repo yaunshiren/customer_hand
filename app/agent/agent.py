@@ -30,6 +30,7 @@ class Agent:
         self.ticket_service = ticket_service or TicketService()
         self.intent_classifier = None
         self.intent_route_policy = None
+        self.business_classifier = None
 
     def handle_message(self, message: str, sender_id: str) -> list[dict[str, Any]]:
         text = message.strip()
@@ -47,6 +48,7 @@ class Agent:
                 "ticket_service": self.ticket_service,
                 "intent_classifier": self.intent_classifier,
                 "intent_route_policy": self.intent_route_policy,
+                "business_classifier": self.business_classifier,
                 "metadata": {},
             }
             result_state = run_agent_graph(state)

@@ -16,7 +16,7 @@ from app.dialogue.command_parser import CommandParser
 from app.rag.answerer import KnowledgeAnswerer
 from app.actions.registry import get_action
 from app.actions.base import ActionResult
-from app.intent import IntentClassifier, IntentRoutePolicy, IntentTaxonomy
+from app.intent import BusinessQuestionClassifier, IntentClassifier, IntentRoutePolicy, IntentTaxonomy
 from app.rag.citation import CitationBuilder
 from app.tickets import TicketService
 from app.actions.builtin import register_builtin_actions
@@ -80,6 +80,13 @@ def _build_intent_route_policy(state: AgentState) -> Any:
     if policy is not None and hasattr(policy, "decide"):
         return policy
     return IntentRoutePolicy()
+
+
+def _build_business_question_classifier(state: AgentState) -> Any:
+    classifier = state.get("business_classifier")
+    if classifier is not None and hasattr(classifier, "classify"):
+        return classifier
+    return BusinessQuestionClassifier()
 
 
 def _clear_started_flow(tracker: Any) -> None:
@@ -149,6 +156,28 @@ def _intent_response_metadata(intent_result: Any, route_decision: Any) -> dict[s
     return metadata
 
 
+def _business_response_metadata(classification: Any) -> dict[str, Any]:
+    data = _model_dump(classification)
+    if not data:
+        return {}
+
+    return {
+        "business_question_type": data.get("question_type"),
+        "business_route": data.get("route"),
+        "business_tool": data.get("target_tool"),
+        "business_confidence": data.get("confidence"),
+        "business_required_arguments": data.get("required_arguments") or [],
+        "business_missing_arguments": data.get("missing_arguments") or [],
+        "business_extracted_arguments": data.get("extracted_arguments") or {},
+        "business_requires_rag": data.get("requires_rag"),
+        "business_requires_confirmation": data.get("requires_confirmation"),
+        "business_risk_level": data.get("risk_level"),
+        "business_reason": data.get("reason"),
+        "business_signals": data.get("signals") or [],
+        "business_source": data.get("source"),
+    }
+
+
 def _policy_chitchat_reply(route_decision: Any) -> str:
     decision_data = _model_dump(route_decision)
     if decision_data.get("system_route") == "out_of_scope":
@@ -163,6 +192,21 @@ def _classify_intent(state: AgentState, message: str) -> Any | None:
         return _build_intent_classifier(state).classify(message)
     except Exception as exc:
         logger.exception("intent classify failed: %s", exc)
+        return None
+
+
+def _classify_business_question(state: AgentState, message: str, tracker: Any, intent_result: Any | None) -> Any | None:
+    if not message:
+        return None
+    try:
+        return _build_business_question_classifier(state).classify(
+            message,
+            intent_result=intent_result,
+            tracker=tracker,
+            user_id=str(state.get("sender_id") or "") or None,
+        )
+    except Exception as exc:
+        logger.exception("business classify failed: %s", exc)
         return None
 
 
@@ -303,6 +347,7 @@ def understand(state: AgentState) -> AgentState:
         "llm_generator": llm_generator,
     }
     intent_result = _classify_intent(state, message)
+    business_classification = _classify_business_question(state, message, tracker, intent_result)
 
     flow_ids = sorted((state.get("flows") or {}).keys()) if isinstance(state.get("flows"), dict) else []
 
@@ -323,6 +368,7 @@ def understand(state: AgentState) -> AgentState:
             "message": message,
             "error": str(exc),
             "intent_result": intent_result,
+            "business_classification": business_classification,
             "llm_result": {"handled": False, "reply_text": None, "results": []},
             "llm_results": [],
         }
@@ -356,6 +402,7 @@ def understand(state: AgentState) -> AgentState:
         "sender_id": sender_id,
         "message": message,
         "intent_result": intent_result,
+        "business_classification": business_classification,
         "llm_result": llm_result,
         "llm_results": results,
         "handled": bool(llm_result.get("handled")),
@@ -420,6 +467,7 @@ def route(state: AgentState) -> AgentState:
         "reply_text": reply_text,
         "intent_result": _model_dump(intent_result),
         "route_decision": _model_dump(route_decision),
+        "business_classification": _model_dump(state.get("business_classification")),
     }
 
 
@@ -698,6 +746,7 @@ def generate_response(state: AgentState) -> AgentState:
         ticket=ticket if isinstance(ticket, dict) else {},
     )
     common_metadata.update(_intent_response_metadata(state.get("intent_result"), state.get("route_decision")))
+    common_metadata.update(_business_response_metadata(state.get("business_classification")))
 
     if reply_text and route_name == "chitchat":
         responses = [

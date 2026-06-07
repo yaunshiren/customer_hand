@@ -27,6 +27,7 @@ class AgentState(TypedDict, total=False):
     ticket_service: Any
     intent_classifier: Any
     intent_route_policy: Any
+    business_classifier: Any
 
     # LLM understanding outputs.
     llm_result: dict[str, Any]
@@ -38,6 +39,7 @@ class AgentState(TypedDict, total=False):
     route: str
     intent_result: Any
     route_decision: Any
+    business_classification: Any
     rag_query: str
     rag_matches: list[dict[str, Any]]
     knowledge_answer: str
