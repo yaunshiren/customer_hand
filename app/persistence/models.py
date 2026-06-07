@@ -91,6 +91,7 @@ class EvalRecord(Base):
         Index("ix_eval_record_case_id", "case_id"),
         Index("ix_eval_record_run_case", "run_id", "case_id", unique=True),
         Index("ix_eval_record_error_type", "error_type"),
+        Index("ix_eval_record_trace_id", "trace_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -104,6 +105,9 @@ class EvalRecord(Base):
     answer: Mapped[str | None] = mapped_column(mysql.LONGTEXT(), nullable=True)
     is_hit: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     error_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    system_route: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    eval_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         mysql.DATETIME(fsp=3),
         nullable=False,

@@ -76,6 +76,9 @@ class EvalRecordUpsert:
     answer: str | None = None
     is_hit: bool | None = None
     error_type: str | None = None
+    trace_id: str | None = None
+    system_route: str | None = None
+    eval_mode: str | None = None
     created_at: datetime | None = None
 
 
@@ -221,6 +224,9 @@ class EvalRepository(BaseRepository):
             "answer": _optional_str("answer", item.answer),
             "is_hit": item.is_hit,
             "error_type": error_type,
+            "trace_id": _optional_str("trace_id", item.trace_id, max_len=64),
+            "system_route": _optional_str("system_route", item.system_route, max_len=64),
+            "eval_mode": _optional_str("eval_mode", item.eval_mode, max_len=32),
         }
 
         if record is None:
