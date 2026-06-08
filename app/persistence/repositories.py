@@ -33,6 +33,7 @@ class AgentTraceCreate:
     user_text: str
     conversation_id: str | None = None
     rewritten_query: str | None = None
+    memory_snapshot: Any = None
     intent_id: str | None = None
     intent_confidence: float | None = None
     route: str | None = None
@@ -103,6 +104,7 @@ class TraceRepository(BaseRepository):
             conversation_id=_optional_str("conversation_id", item.conversation_id, max_len=128),
             user_text=_required_str("user_text", item.user_text),
             rewritten_query=_optional_str("rewritten_query", item.rewritten_query),
+            memory_snapshot=_json_safe(item.memory_snapshot),
             intent_id=_optional_str("intent_id", item.intent_id, max_len=128),
             intent_confidence=item.intent_confidence,
             route=_optional_str("route", item.route, max_len=64),
@@ -124,6 +126,7 @@ class TraceRepository(BaseRepository):
         allowed = {
             "conversation_id",
             "rewritten_query",
+            "memory_snapshot",
             "intent_id",
             "intent_confidence",
             "route",
@@ -138,6 +141,8 @@ class TraceRepository(BaseRepository):
             trace.conversation_id = _optional_str("conversation_id", fields["conversation_id"], max_len=128)
         if "rewritten_query" in fields:
             trace.rewritten_query = _optional_str("rewritten_query", fields["rewritten_query"])
+        if "memory_snapshot" in fields:
+            trace.memory_snapshot = _json_safe(fields["memory_snapshot"])
         if "intent_id" in fields:
             trace.intent_id = _optional_str("intent_id", fields["intent_id"], max_len=128)
         if "intent_confidence" in fields:

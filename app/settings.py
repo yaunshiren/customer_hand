@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     )
     rag_top_k: int = Field(default=3)
     rag_score_threshold: float = Field(default=0.45)
+    memory_recent_turn_limit: int = Field(default=6, ge=1, le=50)
     
     cors_origins: list[str] = Field(
         default_factory=lambda: [

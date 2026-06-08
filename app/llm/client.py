@@ -38,6 +38,7 @@ class LLMClient:
         model: str,
         temperature: float = 0.0,
         timeout: float = 30.0,
+        # timeout: float = 100.0,
         max_retries: int = 0,
         smoke_test_enabled: bool = False,
     ) -> None:

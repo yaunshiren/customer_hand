@@ -23,6 +23,15 @@ class FakeAgent:
                     "route": "rag",
                     "rewritten_query": "售后政策",
                     "intentLeafIds": ["S14_售后政策"],
+                    "memory_snapshot": {
+                        "recent_turns": [],
+                        "memory_entities": {
+                            "product": "",
+                            "order_id": "",
+                            "intent": "policy",
+                        },
+                        "summary": "",
+                    },
                     "intentConfidence": 0.88,
                 },
             }
@@ -117,6 +126,7 @@ def test_api_messages_calls_trace_recorder_success_without_db() -> None:
     assert recorder.starts[0]["trace_id"] == trace_id
     assert recorder.starts[0]["sender_id"] == "trace_user"
     assert recorder.successes[0]["trace_id"] == trace_id
+    assert recorder.successes[0]["memory_snapshot"]["memory_entities"]["intent"] == "policy"
     assert recorder.successes[0]["rewritten_query"] == "售后政策"
     assert recorder.successes[0]["intent_id"] == "S14_售后政策"
     assert recorder.successes[0]["route"] == "rag"

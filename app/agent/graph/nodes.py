@@ -345,7 +345,7 @@ def _can_skip_llm_understanding(classification: Any) -> bool:
     route_name = str(data.get("route") or "").strip()
     question_type = str(data.get("question_type") or "").strip()
     confidence = float(data.get("confidence") or 0.0)
-    return route_name in {"rag", "tool", "ticket", "clarify"} and question_type != "unknown" and confidence >= 0.7
+    return route_name in {"tool", "clarify"} and question_type != "unknown" and confidence >= 0.7
 
 
 def _can_skip_llm_for_pending_confirmation(state: AgentState, message: str, tracker: Any) -> bool:
@@ -365,6 +365,13 @@ def _should_use_business_route(route_name: str | None, route_decision: Any | Non
     decision_data = _model_dump(route_decision)
     execution_route = str(decision_data.get("execution_route") or "").strip()
     return execution_route in {"", "rag", "fallback"}
+
+
+def _is_unknown_or_fallback_route_decision(route_decision: Any | None) -> bool:
+    decision_data = _model_dump(route_decision)
+    system_route = str(decision_data.get("system_route") or "").strip()
+    execution_route = str(decision_data.get("execution_route") or "").strip()
+    return system_route in {"", "unknown"} or execution_route in {"", "fallback"}
 
 
 def _classify_intent(state: AgentState, message: str) -> Any | None:
@@ -431,6 +438,56 @@ def _rag_response_metadata(
     if rewritten_query:
         metadata["rewritten_query"] = rewritten_query
     return metadata
+
+
+def _first_nonempty(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _memory_response_metadata(state: AgentState) -> dict[str, Any]:
+    tracker = state.get("tracker")
+    memory = getattr(tracker, "memory", None)
+    if memory is None or not hasattr(memory, "to_dict"):
+        return {}
+
+    business_data = _model_dump(state.get("business_classification"))
+    extracted_arguments = business_data.get("extracted_arguments")
+    if not isinstance(extracted_arguments, dict):
+        extracted_arguments = {}
+
+    product = _first_nonempty(
+        _tracker_get_slot(tracker, "product"),
+        _tracker_get_slot(tracker, "product_name"),
+    )
+    order_id = _first_nonempty(
+        _tracker_get_slot(tracker, "order_id"),
+        extracted_arguments.get("order_id"),
+    )
+    intent_data = _model_dump(state.get("intent_result"))
+    intent = _first_nonempty(
+        intent_data.get("intent_id") if intent_data.get("intent_id") != "UNKNOWN" else "",
+        business_data.get("question_type") if business_data.get("question_type") != "unknown" else "",
+    )
+
+    entity_updates: dict[str, Any] = {}
+    if product:
+        entity_updates["product"] = product
+    if order_id:
+        entity_updates["order_id"] = order_id
+    if intent:
+        entity_updates["intent"] = intent
+    if entity_updates and hasattr(memory, "update_entities"):
+        memory.update_entities(entity_updates)
+
+    snapshot = memory.to_dict()
+    return {
+        "memory_snapshot": snapshot,
+        "memory_entities": dict(snapshot.get("memory_entities") or {}),
+    }
 
 
 def _merge_response_metadata(responses: list[dict[str, Any]], common: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1004,6 +1061,12 @@ def route(state: AgentState) -> AgentState:
         business_classification,
         has_set_slot=_has_command_type(results, "set_slot"),
     )
+    if (
+        business_route_name == "rag"
+        and _has_command_type(results, "start_flow")
+        and _is_unknown_or_fallback_route_decision(route_decision)
+    ):
+        business_route_name = None
 
     if business_route_name == "tool":
         classification_data = _model_dump(business_classification)
@@ -1463,6 +1526,7 @@ def generate_response(state: AgentState) -> AgentState:
         if tracker is not None:
             tracker.add_bot_message(fallback_text)
 
+    common_metadata.update(_memory_response_metadata(state))
     final_responses = _merge_response_metadata(final_responses, common_metadata)
 
     return {

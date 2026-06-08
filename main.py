@@ -49,6 +49,11 @@ def _response_metadata(responses: list[MessageResponse]) -> dict[str, Any]:
     return dict(responses[0].metadata or {})
 
 
+def _memory_snapshot(metadata: dict[str, Any]) -> dict[str, Any] | None:
+    value = metadata.get("memory_snapshot")
+    return dict(value) if isinstance(value, dict) else None
+
+
 def _final_answer(responses: list[MessageResponse]) -> str | None:
     texts = [str(item.text).strip() for item in responses if item.text and str(item.text).strip()]
     if not texts:
@@ -85,7 +90,7 @@ async def app_lifespan(_: FastAPI):
 
 
 def create_app() -> FastAPI:
-    store = InMemoryTrackerStore()
+    store = InMemoryTrackerStore(memory_turn_limit=settings.memory_recent_turn_limit)
     flows = FlowLoader().load_directory(settings.flow_dir)
     agent = Agent(tracker_store=store, flows=flows, knowledge_dir=settings.knowledge_dir)
     trace_recorder = AgentTraceRecorder()
@@ -192,6 +197,7 @@ def create_app() -> FastAPI:
                     conversation_id=conversation_id,
                     user_text=text,
                     rewritten_query=metadata.get("rewritten_query") or None,
+                    memory_snapshot=_memory_snapshot(metadata),
                     intent_id=_first_intent_id(metadata),
                     intent_confidence=_optional_float(metadata.get("intentConfidence")),
                     route=str(metadata.get("route") or "").strip() or None,

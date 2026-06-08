@@ -25,6 +25,7 @@ class AgentTrace(Base):
     conversation_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     user_text: Mapped[str] = mapped_column(mysql.LONGTEXT(), nullable=False)
     rewritten_query: Mapped[str | None] = mapped_column(mysql.LONGTEXT(), nullable=True)
+    memory_snapshot: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(mysql.JSON(), nullable=True)
     intent_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     intent_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     route: Mapped[str | None] = mapped_column(String(64), nullable=True)
