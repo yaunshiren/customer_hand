@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.tools.schemas import list_prompt_tool_schemas
+from app.tools.schemas import BusinessToolSchema, list_tool_schemas
 
 
 class CommandPromptBuilder:
@@ -176,10 +176,36 @@ class CommandPromptBuilder:
         ]
 
     def _default_tools(self) -> list[dict[str, Any]]:
-        return list_prompt_tool_schemas()
+        return [_compact_tool_schema(schema) for schema in list_tool_schemas()]
 
     def _to_json(self, data: Any) -> str:
         return json.dumps(data, ensure_ascii=False, indent=2)
 
 
 PromptBuilder = CommandPromptBuilder
+
+
+def _compact_tool_schema(schema: BusinessToolSchema) -> dict[str, Any]:
+    properties = schema.parameters.get("properties") if isinstance(schema.parameters, dict) else {}
+    compact_properties = {
+        name: {
+            key: value
+            for key, value in dict(raw).items()
+            if key in {"type", "description", "enum"}
+        }
+        for name, raw in dict(properties or {}).items()
+        if isinstance(raw, dict)
+    }
+    return {
+        "tool_name": schema.name,
+        "description": schema.description,
+        "parameters": {
+            "type": "object",
+            "properties": compact_properties,
+            "required": list(schema.required),
+            "additionalProperties": False,
+        },
+        "required": list(schema.required),
+        "risk_level": schema.risk_level,
+        "requires_confirmation": schema.requires_confirmation,
+    }

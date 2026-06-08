@@ -338,6 +338,24 @@ def _business_route_name(classification: Any, *, has_set_slot: bool) -> str | No
     return None
 
 
+def _can_skip_llm_understanding(classification: Any) -> bool:
+    data = _model_dump(classification)
+    if not data:
+        return False
+    route_name = str(data.get("route") or "").strip()
+    question_type = str(data.get("question_type") or "").strip()
+    confidence = float(data.get("confidence") or 0.0)
+    return route_name in {"rag", "tool", "ticket", "clarify"} and question_type != "unknown" and confidence >= 0.7
+
+
+def _can_skip_llm_for_pending_confirmation(state: AgentState, message: str, tracker: Any) -> bool:
+    pending = _pending_tool_confirmation(tracker)
+    if not pending:
+        return False
+    policy = _build_tool_safety_policy(state)
+    return is_confirmation_message(message, policy) or is_cancellation_message(message, policy)
+
+
 def _should_use_business_route(route_name: str | None, route_decision: Any | None) -> bool:
     if route_name is None:
         return False
@@ -819,8 +837,51 @@ def understand(state: AgentState) -> AgentState:
         **state,
         "llm_generator": llm_generator,
     }
+    intent_result: Any | None = None
+    business_classification = _classify_business_question(state, message, tracker, None)
+
+    if _can_skip_llm_for_pending_confirmation(state, message, tracker) or _can_skip_llm_understanding(business_classification):
+        return {
+            **state,
+            "sender_id": sender_id,
+            "message": message,
+            "intent_result": intent_result,
+            "business_classification": business_classification,
+            "llm_result": {
+                "handled": False,
+                "reply_text": None,
+                "results": [],
+                "skipped": True,
+                "reason": "deterministic_business_route",
+            },
+            "llm_results": [],
+            "handled": False,
+            "reply_text": None,
+            "command_types": [],
+        }
+
     intent_result = _classify_intent(state, message)
     business_classification = _classify_business_question(state, message, tracker, intent_result)
+
+    if _can_skip_llm_understanding(business_classification):
+        return {
+            **state,
+            "sender_id": sender_id,
+            "message": message,
+            "intent_result": intent_result,
+            "business_classification": business_classification,
+            "llm_result": {
+                "handled": False,
+                "reply_text": None,
+                "results": [],
+                "skipped": True,
+                "reason": "deterministic_business_route_after_intent",
+            },
+            "llm_results": [],
+            "handled": False,
+            "reply_text": None,
+            "command_types": [],
+        }
 
     flow_ids = sorted((state.get("flows") or {}).keys()) if isinstance(state.get("flows"), dict) else []
 

@@ -38,6 +38,8 @@ class LLMClient:
         model: str,
         temperature: float = 0.0,
         timeout: float = 30.0,
+        max_retries: int = 0,
+        smoke_test_enabled: bool = False,
     ) -> None:
         self.enabled = enabled
         self.api_key = api_key
@@ -45,6 +47,8 @@ class LLMClient:
         self.model = model
         self.temperature = temperature
         self.timeout = timeout
+        self.max_retries = max_retries
+        self.smoke_test_enabled = smoke_test_enabled
 
     @classmethod
     def from_env(cls) -> "LLMClient":
@@ -72,6 +76,8 @@ class LLMClient:
         model = os.getenv("QWEN_MODEL") or os.getenv("BAILIAN_MODEL") or "qwen-plus"
         temperature = float(os.getenv("LLM_TEMPERATURE", "0.0"))
         timeout = float(os.getenv("LLM_TIMEOUT", "30"))
+        max_retries = int(os.getenv("LLM_MAX_RETRIES", "0"))
+        smoke_test_enabled = os.getenv("LLM_SMOKE_TEST_ENABLED", "false").lower() == "true"
         return cls(
             enabled=enabled,
             api_key=api_key,
@@ -79,6 +85,8 @@ class LLMClient:
             model=model,
             temperature=temperature,
             timeout=timeout,
+            max_retries=max_retries,
+            smoke_test_enabled=smoke_test_enabled,
         )
 
     def generate_json(
@@ -108,7 +116,8 @@ class LLMClient:
             return result
 
         try:
-            self._direct_httpx_smoke_test()
+            if self.smoke_test_enabled:
+                self._direct_httpx_smoke_test()
             client = self._build_client()
             emit_llm_event(
                 "request",
@@ -169,7 +178,12 @@ class LLMClient:
             self.base_url,
             self._mask_api_key(self.api_key),
         )
-        return OpenAI(api_key=self.api_key, base_url=self.base_url)
+        return OpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            timeout=self.timeout,
+            max_retries=max(0, self.max_retries),
+        )
 
     def _direct_httpx_smoke_test(self) -> None:
         url = f"{self.base_url.rstrip('/')}/chat/completions"
