@@ -51,7 +51,12 @@ def _response_metadata(responses: list[MessageResponse]) -> dict[str, Any]:
 
 def _memory_snapshot(metadata: dict[str, Any]) -> dict[str, Any] | None:
     value = metadata.get("memory_snapshot")
-    return dict(value) if isinstance(value, dict) else None
+    snapshot = dict(value) if isinstance(value, dict) else None
+    query_rewrite = metadata.get("query_rewrite")
+    if isinstance(query_rewrite, dict):
+        snapshot = snapshot or {}
+        snapshot["query_rewrite"] = dict(query_rewrite)
+    return snapshot
 
 
 def _final_answer(responses: list[MessageResponse]) -> str | None:

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from app.agent.graph.nodes import rag, route, understand
+from app.agent.graph.nodes import load_context, rag, route, understand
 from app.core.tracker import DialogueStateTracker
 from app.intent import IntentCandidate, IntentResult
+from app.memory import MemoryEntityExtractor, ProductCatalog
 from app.rag.answerer import KnowledgeAnswerer
 
 
@@ -47,6 +48,52 @@ class RecordingKnowledgeAnswerer(KnowledgeAnswerer):
     def answer(self, query: str, top_k: int = 3, intent_id: str | None = None) -> dict[str, object]:
         self.calls.append((query, top_k, intent_id))
         return {"answer": "ok", "matches": [], "used_llm": False}
+
+
+def _tracker_after_first_turn(
+    *,
+    sender_id: str,
+    user_text: str,
+    product_names: list[str] | None = None,
+) -> DialogueStateTracker:
+    tracker = DialogueStateTracker(sender_id)
+    state = load_context(
+        {
+            "sender_id": sender_id,
+            "message": user_text,
+            "tracker": tracker,
+            "memory_entity_extractor": MemoryEntityExtractor(ProductCatalog(product_names or [])),
+        }
+    )
+    tracker = state["tracker"]
+    tracker.add_bot_message("ok")
+    return tracker
+
+
+def _rag_after_second_turn(
+    *,
+    tracker: DialogueStateTracker,
+    sender_id: str,
+    user_text: str,
+    answerer: RecordingKnowledgeAnswerer,
+    product_names: list[str] | None = None,
+) -> dict[str, object]:
+    state = load_context(
+        {
+            "sender_id": sender_id,
+            "message": user_text,
+            "tracker": tracker,
+            "memory_entity_extractor": MemoryEntityExtractor(ProductCatalog(product_names or [])),
+        }
+    )
+    return rag(
+        {
+            **state,
+            "llm_results": [],
+            "knowledge_answerer": answerer,
+            "intent_result": _intent("S14_售后政策", "售后政策", "KB"),
+        }
+    )
 
 
 def test_understand_adds_intent_result_to_state() -> None:
@@ -165,6 +212,81 @@ def test_rag_uses_rewritten_query_from_memory() -> None:
     assert state["query_rewrite"]["original_query"] == "那它可以 7 天无理由吗？"
     assert state["query_rewrite"]["rewritten_query"] == "小米 14 Pro 可以 7 天无理由退货吗？"
     assert state["query_rewrite"]["memory_entities"]["product"] == "小米 14 Pro"
+
+
+def test_multiturn_acceptance_product_pronoun_rewrite_uses_rewritten_query() -> None:
+    answerer = RecordingKnowledgeAnswerer()
+    tracker = _tracker_after_first_turn(
+        sender_id="accept_product_rewrite_user",
+        user_text="小米 14 Pro 保修多久？",
+        product_names=["小米 14 Pro"],
+    )
+
+    state = _rag_after_second_turn(
+        tracker=tracker,
+        sender_id="accept_product_rewrite_user",
+        user_text="那它可以 7 天无理由吗？",
+        answerer=answerer,
+        product_names=["小米 14 Pro"],
+    )
+
+    assert answerer.calls == [("小米 14 Pro 可以 7 天无理由退货吗？", 3, "S14_售后政策")]
+    assert state["query_rewrite"] == {
+        "original_query": "那它可以 7 天无理由吗？",
+        "rewritten_query": "小米 14 Pro 可以 7 天无理由退货吗？",
+        "memory_entities": {
+            "product": "小米 14 Pro",
+            "order_id": "",
+            "intent": "退货",
+        },
+        "rewrite_applied": True,
+        "reason": "contextual_reference_resolved",
+    }
+
+
+def test_multiturn_acceptance_order_pronoun_rewrite_uses_rewritten_query() -> None:
+    answerer = RecordingKnowledgeAnswerer()
+    tracker = _tracker_after_first_turn(
+        sender_id="accept_order_rewrite_user",
+        user_text="订单 123456 到哪了？",
+    )
+
+    state = _rag_after_second_turn(
+        tracker=tracker,
+        sender_id="accept_order_rewrite_user",
+        user_text="它还能改地址吗？",
+        answerer=answerer,
+    )
+
+    assert answerer.calls == [("订单 123456 还能改地址吗？", 3, "S14_售后政策")]
+    assert state["query_rewrite"]["original_query"] == "它还能改地址吗？"
+    assert state["query_rewrite"]["rewritten_query"] == "订单 123456 还能改地址吗？"
+    assert state["query_rewrite"]["memory_entities"]["order_id"] == "123456"
+    assert state["query_rewrite"]["rewrite_applied"] is True
+
+
+def test_multiturn_acceptance_issue_type_followup_rewrite_uses_rewritten_query() -> None:
+    answerer = RecordingKnowledgeAnswerer()
+    tracker = _tracker_after_first_turn(
+        sender_id="accept_issue_followup_user",
+        user_text="华为 Mate 60 支持退货吗？",
+        product_names=["华为 Mate 60"],
+    )
+
+    state = _rag_after_second_turn(
+        tracker=tracker,
+        sender_id="accept_issue_followup_user",
+        user_text="那换货呢？",
+        answerer=answerer,
+        product_names=["华为 Mate 60"],
+    )
+
+    assert answerer.calls == [("华为 Mate 60 可以换货吗？", 3, "S14_售后政策")]
+    assert state["query_rewrite"]["original_query"] == "那换货呢？"
+    assert state["query_rewrite"]["rewritten_query"] == "华为 Mate 60 可以换货吗？"
+    assert state["query_rewrite"]["memory_entities"]["product"] == "华为 Mate 60"
+    assert state["query_rewrite"]["memory_entities"]["intent"] == "换货"
+    assert state["query_rewrite"]["rewrite_applied"] is True
 
 
 def test_route_does_not_enter_flow_when_policy_overrides_start_flow() -> None:

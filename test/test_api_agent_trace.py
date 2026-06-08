@@ -32,6 +32,17 @@ class FakeAgent:
                         },
                         "summary": "",
                     },
+                    "query_rewrite": {
+                        "original_query": "我想问售后政策",
+                        "rewritten_query": "售后政策",
+                        "memory_entities": {
+                            "product": "",
+                            "order_id": "",
+                            "intent": "policy",
+                        },
+                        "rewrite_applied": True,
+                        "reason": "test_trace",
+                    },
                     "intentConfidence": 0.88,
                 },
             }
@@ -100,6 +111,7 @@ def _get_agent_trace(trace_id: str) -> AgentTrace | None:
             conversation_id=row.conversation_id,
             user_text=row.user_text,
             rewritten_query=row.rewritten_query,
+            memory_snapshot=row.memory_snapshot,
             intent_id=row.intent_id,
             intent_confidence=row.intent_confidence,
             route=row.route,
@@ -127,6 +139,17 @@ def test_api_messages_calls_trace_recorder_success_without_db() -> None:
     assert recorder.starts[0]["sender_id"] == "trace_user"
     assert recorder.successes[0]["trace_id"] == trace_id
     assert recorder.successes[0]["memory_snapshot"]["memory_entities"]["intent"] == "policy"
+    assert recorder.successes[0]["memory_snapshot"]["query_rewrite"] == {
+        "original_query": "我想问售后政策",
+        "rewritten_query": "售后政策",
+        "memory_entities": {
+            "product": "",
+            "order_id": "",
+            "intent": "policy",
+        },
+        "rewrite_applied": True,
+        "reason": "test_trace",
+    }
     assert recorder.successes[0]["rewritten_query"] == "售后政策"
     assert recorder.successes[0]["intent_id"] == "S14_售后政策"
     assert recorder.successes[0]["route"] == "rag"
@@ -175,6 +198,10 @@ def test_api_messages_persists_agent_trace(trace_db_available) -> None:
         assert row.conversation_id == "trace_user"
         assert row.user_text == "我想问售后政策"
         assert row.rewritten_query == "售后政策"
+        assert row.memory_snapshot["query_rewrite"]["original_query"] == "我想问售后政策"
+        assert row.memory_snapshot["query_rewrite"]["rewritten_query"] == "售后政策"
+        assert row.memory_snapshot["query_rewrite"]["memory_entities"]["intent"] == "policy"
+        assert row.memory_snapshot["query_rewrite"]["rewrite_applied"] is True
         assert row.intent_id == "S14_售后政策"
         assert row.intent_confidence == pytest.approx(0.88)
         assert row.route == "rag"
