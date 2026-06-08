@@ -9,6 +9,7 @@ from app.agent.graph.builder import run_agent_graph
 from app.agent.tool_safety import AgentToolSafetyPolicy
 from app.core.tracker_store import InMemoryTrackerStore
 from app.dialogue.llm_generator import LLMCommandGenerator
+from app.memory import MemoryEntityExtractor, QueryRewriter
 from app.rag.answerer import KnowledgeAnswerer
 from app.tickets import TicketService
 
@@ -29,6 +30,8 @@ class Agent:
         self.flows = flows or {}
         self.llm_generator = LLMCommandGenerator()
         self.knowledge_answerer = KnowledgeAnswerer(docs_dir=knowledge_dir)
+        self.memory_entity_extractor = MemoryEntityExtractor.from_knowledge_dir(knowledge_dir)
+        self.query_rewriter = QueryRewriter()
         self.ticket_service = ticket_service or TicketService()
         self.business_tool_service = None
         self.tool_safety_policy = tool_safety_policy or AgentToolSafetyPolicy()
@@ -49,6 +52,8 @@ class Agent:
                 "flows": self.flows,
                 "llm_generator": self.llm_generator,
                 "knowledge_answerer": self.knowledge_answerer,
+                "memory_entity_extractor": self.memory_entity_extractor,
+                "query_rewriter": self.query_rewriter,
                 "ticket_service": self.ticket_service,
                 "business_tool_service": self.business_tool_service,
                 "tool_safety_policy": self.tool_safety_policy,

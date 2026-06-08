@@ -24,6 +24,8 @@ class AgentState(TypedDict, total=False):
     command_processor: Any
     command_parser: Any
     knowledge_answerer: Any
+    memory_entity_extractor: Any
+    query_rewriter: Any
     ticket_service: Any
     business_tool_service: Any
     tool_safety_policy: Any
@@ -43,6 +45,7 @@ class AgentState(TypedDict, total=False):
     route_decision: Any
     business_classification: Any
     rag_query: str
+    query_rewrite: dict[str, Any]
     rag_matches: list[dict[str, Any]]
     knowledge_answer: str
     used_llm: bool
@@ -65,3 +68,4 @@ class AgentState(TypedDict, total=False):
     responses: list[dict[str, Any]]
     error: str
     metadata: dict[str, Any]
+    memory_extraction: dict[str, Any]

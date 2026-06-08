@@ -20,6 +20,7 @@ from app.core.tracker import DialogueStateTracker
 from app.dialogue.llm_generator import LLMCommandGenerator
 from app.dialogue.command_processor import CommandProcessor
 from app.dialogue.command_parser import CommandParser
+from app.memory import MemoryEntityExtractor, QueryRewriter
 from app.rag.answerer import KnowledgeAnswerer
 from app.actions.registry import get_action
 from app.actions.base import ActionResult
@@ -128,6 +129,36 @@ def _build_business_tool_service(state: AgentState) -> Any:
             retry_backoff_seconds=policy.retry_backoff_seconds,
         )
     )
+
+
+def _build_memory_entity_extractor(state: AgentState) -> MemoryEntityExtractor:
+    extractor = state.get("memory_entity_extractor")
+    if isinstance(extractor, MemoryEntityExtractor):
+        return extractor
+    return MemoryEntityExtractor()
+
+
+def _build_query_rewriter(state: AgentState) -> Any:
+    rewriter = state.get("query_rewriter")
+    if rewriter is not None and hasattr(rewriter, "rewrite"):
+        return rewriter
+    return QueryRewriter()
+
+
+def _query_rewrite_metadata(result: Any, *, original_query: str) -> dict[str, Any]:
+    if hasattr(result, "to_dict"):
+        data = result.to_dict()
+        if isinstance(data, dict):
+            return dict(data)
+    if isinstance(result, dict):
+        return dict(result)
+    return {
+        "original_query": original_query,
+        "rewritten_query": original_query,
+        "memory_entities": {},
+        "rewrite_applied": False,
+        "reason": "unsupported_rewrite_result",
+    }
 
 
 def _clear_started_flow(tracker: Any) -> None:
@@ -421,7 +452,9 @@ def _finish_active_flow(tracker: Any) -> None:
 def _rag_response_metadata(
     *,
     route_name: str,
+    original_query: str | None,
     rewritten_query: str | None,
+    query_rewrite: dict[str, Any] | None,
     rag_matches: list[dict[str, Any]],
     used_llm: bool,
     ticket: dict[str, Any],
@@ -435,58 +468,34 @@ def _rag_response_metadata(
         "ticket_id": ticket.get("ticket_id") if isinstance(ticket, dict) else None,
         **citation_metadata,
     }
+    if original_query:
+        metadata["original_query"] = original_query
     if rewritten_query:
         metadata["rewritten_query"] = rewritten_query
+    if query_rewrite:
+        metadata["query_rewrite"] = dict(query_rewrite)
     return metadata
 
 
-def _first_nonempty(*values: Any) -> str:
-    for value in values:
-        text = str(value or "").strip()
-        if text:
-            return text
-    return ""
-
-
-def _memory_response_metadata(state: AgentState) -> dict[str, Any]:
+def _memory_response_metadata(state: AgentState, *, assistant_text: str = "") -> dict[str, Any]:
     tracker = state.get("tracker")
     memory = getattr(tracker, "memory", None)
     if memory is None or not hasattr(memory, "to_dict"):
         return {}
 
-    business_data = _model_dump(state.get("business_classification"))
-    extracted_arguments = business_data.get("extracted_arguments")
-    if not isinstance(extracted_arguments, dict):
-        extracted_arguments = {}
-
-    product = _first_nonempty(
-        _tracker_get_slot(tracker, "product"),
-        _tracker_get_slot(tracker, "product_name"),
+    extraction = _build_memory_entity_extractor(state).update_memory(
+        memory,
+        user_text=str(state.get("message") or ""),
+        assistant_text=assistant_text,
+        tracker=tracker,
+        intent_result=state.get("intent_result"),
+        business_classification=state.get("business_classification"),
     )
-    order_id = _first_nonempty(
-        _tracker_get_slot(tracker, "order_id"),
-        extracted_arguments.get("order_id"),
-    )
-    intent_data = _model_dump(state.get("intent_result"))
-    intent = _first_nonempty(
-        intent_data.get("intent_id") if intent_data.get("intent_id") != "UNKNOWN" else "",
-        business_data.get("question_type") if business_data.get("question_type") != "unknown" else "",
-    )
-
-    entity_updates: dict[str, Any] = {}
-    if product:
-        entity_updates["product"] = product
-    if order_id:
-        entity_updates["order_id"] = order_id
-    if intent:
-        entity_updates["intent"] = intent
-    if entity_updates and hasattr(memory, "update_entities"):
-        memory.update_entities(entity_updates)
-
     snapshot = memory.to_dict()
     return {
         "memory_snapshot": snapshot,
         "memory_entities": dict(snapshot.get("memory_entities") or {}),
+        "memory_extraction": extraction.to_dict(),
     }
 
 
@@ -872,12 +881,18 @@ def load_context(state: AgentState) -> AgentState:
     tracker = _normalize_tracker(state.get("tracker"), sender_id)
 
     tracker.update_with_user_message(message)
+    memory_extraction = _build_memory_entity_extractor(state).update_memory(
+        tracker.memory,
+        user_text=message,
+        tracker=tracker,
+    )
 
     return {
         **state,
         "sender_id": sender_id,
         "message": message,
         "tracker": tracker,
+        "memory_extraction": memory_extraction.to_dict(),
     }
 
 
@@ -1150,13 +1165,28 @@ def route(state: AgentState) -> AgentState:
 def rag(state: AgentState) -> AgentState:
     results = state.get("llm_results") or []
     message = str(state.get("message") or "").strip()
+    tracker = state.get("tracker")
     knowledge_answerer = state.get("knowledge_answerer")
 
     if not isinstance(knowledge_answerer, KnowledgeAnswerer):
         knowledge_answerer = KnowledgeAnswerer()
 
     command_data = _first_command_data(results, "knowledge_answer")
-    rag_query = str(command_data.get("query") or message)
+    original_query = str(command_data.get("query") or message).strip()
+    try:
+        rewrite_result = _build_query_rewriter(state).rewrite(original_query, getattr(tracker, "memory", None))
+        query_rewrite = _query_rewrite_metadata(rewrite_result, original_query=original_query)
+    except Exception as exc:
+        logger.exception("query rewrite failed: %s", exc)
+        query_rewrite = {
+            "original_query": original_query,
+            "rewritten_query": original_query,
+            "memory_entities": {},
+            "rewrite_applied": False,
+            "reason": "rewrite_error",
+        }
+
+    rag_query = str(query_rewrite.get("rewritten_query") or original_query).strip()
     top_k = int(command_data.get("top_k") or 3)
     intent_data = _model_dump(state.get("intent_result"))
     intent_id = str(intent_data.get("intent_id") or "").strip()
@@ -1172,6 +1202,7 @@ def rag(state: AgentState) -> AgentState:
             "error": str(exc),
             "route": "fallback",
             "rag_query": rag_query,
+            "query_rewrite": query_rewrite,
             "rag_matches": [],
             "knowledge_answer": "",
             "used_llm": False,
@@ -1180,6 +1211,7 @@ def rag(state: AgentState) -> AgentState:
     return {
         **state,
         "rag_query": rag_query,
+        "query_rewrite": query_rewrite,
         "rag_matches": answer.get("matches", []),
         "knowledge_answer": str(answer.get("answer") or ""),
         "used_llm": bool(answer.get("used_llm")),
@@ -1477,9 +1509,12 @@ def generate_response(state: AgentState) -> AgentState:
     rag_matches = state.get("rag_matches") or []
     knowledge_answer = str(state.get("knowledge_answer") or "")
     error = str(state.get("error") or "")
+    query_rewrite = state.get("query_rewrite") if isinstance(state.get("query_rewrite"), dict) else None
     common_metadata = _rag_response_metadata(
         route_name=route_name,
-        rewritten_query=str(state.get("rag_query") or "").strip() or None,
+        original_query=str((query_rewrite or {}).get("original_query") or "").strip() or None,
+        rewritten_query=str((query_rewrite or {}).get("rewritten_query") or state.get("rag_query") or "").strip() or None,
+        query_rewrite=query_rewrite,
         rag_matches=rag_matches,
         used_llm=bool(state.get("used_llm")),
         ticket=ticket if isinstance(ticket, dict) else {},
@@ -1526,7 +1561,8 @@ def generate_response(state: AgentState) -> AgentState:
         if tracker is not None:
             tracker.add_bot_message(fallback_text)
 
-    common_metadata.update(_memory_response_metadata(state))
+    assistant_text = str(final_responses[0].get("text") or "") if final_responses else ""
+    common_metadata.update(_memory_response_metadata(state, assistant_text=assistant_text))
     final_responses = _merge_response_metadata(final_responses, common_metadata)
 
     return {

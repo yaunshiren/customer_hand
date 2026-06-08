@@ -145,6 +145,28 @@ def test_rag_passes_intent_id_to_knowledge_answerer() -> None:
     assert state["knowledge_answer"] == "ok"
 
 
+def test_rag_uses_rewritten_query_from_memory() -> None:
+    answerer = RecordingKnowledgeAnswerer()
+    tracker = DialogueStateTracker("rewrite_rag_user")
+    tracker.memory.update_entities({"product": "小米 14 Pro"})
+
+    state = rag(
+        {
+            "message": "那它可以 7 天无理由吗？",
+            "tracker": tracker,
+            "llm_results": [],
+            "knowledge_answerer": answerer,
+            "intent_result": _intent("S14_售后政策", "售后政策", "KB"),
+        }
+    )
+
+    assert answerer.calls == [("小米 14 Pro 可以 7 天无理由退货吗？", 3, "S14_售后政策")]
+    assert state["rag_query"] == "小米 14 Pro 可以 7 天无理由退货吗？"
+    assert state["query_rewrite"]["original_query"] == "那它可以 7 天无理由吗？"
+    assert state["query_rewrite"]["rewritten_query"] == "小米 14 Pro 可以 7 天无理由退货吗？"
+    assert state["query_rewrite"]["memory_entities"]["product"] == "小米 14 Pro"
+
+
 def test_route_does_not_enter_flow_when_policy_overrides_start_flow() -> None:
     tracker = DialogueStateTracker("intent_start_flow_user")
     tracker.active_flow = "logistics"
