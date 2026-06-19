@@ -16,3 +16,6 @@ ENV/
 .env
 data/chroma/
 data/chroma_smoke/
+
+# Logs
+*.log
