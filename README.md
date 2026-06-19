@@ -170,12 +170,6 @@ pytest test/test_api_basic.py -v
 
 ---
 
-## 简历描述（可直接改编）
-
-> 独立设计并实现电商场景智能客服后端（FastAPI）：会话状态追踪与 YAML 流程编排、可扩展 Action；通过 **LLM 输出结构化 JSON 命令** 驱动流程与 RAG，失败时降级为规则路径；实现关键词知识检索与带引用回答、统一 **trace_id** 与异常响应；pytest 覆盖核心 API 与编排逻辑。
-
----
-
 ## 常见问题
 
 **conda / Python 版本不对**  
