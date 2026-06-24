@@ -12,6 +12,8 @@ from app.dialogue.llm_generator import LLMCommandGenerator
 from app.memory import MemoryEntityExtractor, QueryRewriter
 from app.rag.answerer import KnowledgeAnswerer
 from app.tickets import TicketService
+from app.memory import ConversationMemoryService
+from app.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +40,14 @@ class Agent:
         self.intent_classifier = None
         self.intent_route_policy = None
         self.business_classifier = None
+        self.memory_service = ConversationMemoryService() if settings.trace_db_url else None
 
-    def handle_message(self, message: str, sender_id: str) -> list[dict[str, Any]]:
+    def handle_message(
+            self,
+            message: str,
+            sender_id: str,
+            conversation_id: str | None = None,
+        ) -> list[dict[str, Any]]:
         text = message.strip()
         logger.info("agent.start sender_id=%s message_len=%d", sender_id, len(text))
         try:
@@ -61,6 +69,8 @@ class Agent:
                 "intent_route_policy": self.intent_route_policy,
                 "business_classifier": self.business_classifier,
                 "metadata": {},
+                "conversation_id": conversation_id or sender_id,
+                "memory_service": self.memory_service,
             }
             result_state = run_agent_graph(state)
             responses = result_state.get("responses") or []

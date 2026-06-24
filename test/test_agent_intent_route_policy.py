@@ -63,7 +63,7 @@ def test_intent_policy_routes_logistics_policy_to_rag_without_starting_flow() ->
     assert metadata["requires_rag"] is True
 
 
-def test_intent_policy_routes_fault_report_to_rag_without_order_slot() -> None:
+def test_intent_policy_routes_fault_report_to_ticket_without_order_slot() -> None:
     agent, store = _agent_with_llm_disabled()
 
     response = agent.handle_message("我的扫地机充不进电了", "policy_fault_user")
@@ -73,7 +73,7 @@ def test_intent_policy_routes_fault_report_to_rag_without_order_slot() -> None:
     assert tracker is not None
     assert tracker.active_flow is None
     assert tracker.slot_to_collect is None
-    assert metadata["route"] == "rag"
+    assert metadata["route"] == "ticket"
     assert metadata["intentLeafIds"] == ["F1_故障报告"]
-    assert metadata["system_route"] == "kb_ticket"
-    assert metadata["requires_rag"] is True
+    assert metadata["system_route"] == "ticket"
+    assert metadata["requires_rag"] is False

@@ -69,3 +69,8 @@ class AgentState(TypedDict, total=False):
     error: str
     metadata: dict[str, Any]
     memory_extraction: dict[str, Any]
+
+
+    # 对话id和记忆服务
+    conversation_id: str | None
+    memory_service: Any

@@ -38,16 +38,16 @@ def test_logistics_query_with_order_id_calls_business_tool() -> None:
     assert "10001" in response[0]["text"]
 
 
-def test_logistics_query_without_order_id_asks_for_missing_argument() -> None:
+def test_logistics_query_without_order_id_uses_rag_and_exposes_missing_argument() -> None:
     response = _agent().handle_message("帮我查一下物流", "tool_clarify_user")
     metadata = response[0]["metadata"]
 
-    assert metadata["route"] == "clarify"
+    assert metadata["route"] == "rag"
     assert metadata["business_question_type"] == "logistics_query"
     assert metadata["business_route"] == "clarify"
     assert metadata["business_missing_arguments"] == ["order_id"]
     assert metadata.get("tool_name") is None
-    assert "订单号" in response[0]["text"]
+    assert response[0]["text"] == "测试知识库回答"
 
 
 def test_complaint_creates_ticket_through_business_tool() -> None:

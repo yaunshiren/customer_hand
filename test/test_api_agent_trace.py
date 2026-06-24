@@ -14,7 +14,12 @@ from main import app  # noqa: E402
 
 
 class FakeAgent:
-    def handle_message(self, message: str, sender_id: str) -> list[dict[str, object]]:
+    def handle_message(
+        self,
+        message: str,
+        sender_id: str,
+        conversation_id: str | None = None,
+    ) -> list[dict[str, object]]:
         return [
             {
                 "recipient_id": sender_id,
@@ -50,7 +55,12 @@ class FakeAgent:
 
 
 class FailingAgent:
-    def handle_message(self, message: str, sender_id: str) -> list[dict[str, object]]:
+    def handle_message(
+        self,
+        message: str,
+        sender_id: str,
+        conversation_id: str | None = None,
+    ) -> list[dict[str, object]]:
         raise RuntimeError("agent exploded")
 
 

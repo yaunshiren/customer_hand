@@ -7,10 +7,26 @@ from app.agent.graph.node_tracker import _normalize_tracker
 
 def load_context(state: AgentState) -> AgentState:
     sender_id = str(state.get("sender_id") or "default")
+    conversation_id = str(state.get("conversation_id") or sender_id)
     message = str(state.get("message") or "").strip()
     tracker = _normalize_tracker(state.get("tracker"), sender_id)
+    memory_service = state.get("memory_service")
+
+    if memory_service is not None:
+        tracker.memory = memory_service.load(
+            sender_id=sender_id,
+            conversation_id=conversation_id,
+        )
 
     tracker.update_with_user_message(message)
+
+    if memory_service is not None:
+        memory_service.append_user(
+            sender_id=sender_id,
+            conversation_id=conversation_id,
+            content=message,
+        )
+
     memory_extraction = _build_memory_entity_extractor(state).update_memory(
         tracker.memory,
         user_text=message,
@@ -20,6 +36,7 @@ def load_context(state: AgentState) -> AgentState:
     return {
         **state,
         "sender_id": sender_id,
+        "conversation_id": conversation_id,
         "message": message,
         "tracker": tracker,
         "memory_extraction": memory_extraction.to_dict(),

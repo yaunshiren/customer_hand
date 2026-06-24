@@ -179,6 +179,7 @@ def create_app() -> FastAPI:
                     return request.app.state.agent.handle_message(
                         message=req.message,
                         sender_id=req.sender_id,
+                        conversation_id=conversation_id,
                     )
 
                 raw_responses = await run_with_trace(request, handle)

@@ -114,3 +114,43 @@ class EvalRecord(Base):
         nullable=False,
         server_default=text("CURRENT_TIMESTAMP(3)"),
     )
+
+
+class ConversationMessage(Base):
+    __tablename__ = "conversation_message"
+    __table_args__ = (
+        Index("ix_conversation_message_sender_id", "sender_id"),
+        Index("ix_conversation_message_sender_id_id", "sender_id", "id"),
+        Index("ix_conversation_message_conversation_id", "conversation_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    sender_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    conversation_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(mysql.LONGTEXT(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=3),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP(3)"),
+    )
+
+
+class ConversationSummary(Base):
+    __tablename__ = "conversation_summary"
+    __table_args__ = (
+        Index("ix_conversation_summary_sender_id", "sender_id"),
+        Index("ix_conversation_summary_sender_id_last_message_id", "sender_id", "last_message_id"),
+        Index("ix_conversation_summary_conversation_id", "conversation_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    sender_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    conversation_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    last_message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    content: Mapped[str] = mapped_column(mysql.LONGTEXT(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=3),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP(3)"),
+    )

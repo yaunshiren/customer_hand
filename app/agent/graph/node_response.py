@@ -77,6 +77,17 @@ def generate_response(state: AgentState) -> AgentState:
             tracker.add_bot_message(fallback_text)
 
     assistant_text = str(final_responses[0].get("text") or "") if final_responses else ""
+
+    memory_service = state.get("memory_service")
+    conversation_id = str(state.get("conversation_id") or sender_id)
+
+    if memory_service is not None and assistant_text:
+        memory_service.append_assistant(
+            sender_id=sender_id,
+            conversation_id=conversation_id,
+            content=assistant_text,
+        )
+
     common_metadata.update(_memory_response_metadata(state, assistant_text=assistant_text))
     final_responses = _merge_response_metadata(final_responses, common_metadata)
 

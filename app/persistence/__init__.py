@@ -1,7 +1,14 @@
 """Persistence infrastructure for trace and eval storage."""
 
 from app.persistence.db import get_engine, ping_trace_db, trace_db_session
-from app.persistence.models import AgentTrace, EvalRecord, RetrievalTrace, ToolTrace
+from app.persistence.models import (
+    AgentTrace,
+    ConversationMessage,
+    ConversationSummary,
+    EvalRecord,
+    RetrievalTrace,
+    ToolTrace,
+)
 from app.persistence.repositories import (
     AgentTraceCreate,
     EvalRecordUpsert,
@@ -43,4 +50,6 @@ __all__ = [
     "render_badcase_markdown",
     "trace_db_session",
     "write_badcase_report",
+    "ConversationMessage",
+    "ConversationSummary",
 ]

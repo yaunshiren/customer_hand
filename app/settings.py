@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -43,7 +43,12 @@ class Settings(BaseSettings):
     )
     rag_top_k: int = Field(default=3)
     rag_score_threshold: float = Field(default=0.45)
+
     memory_recent_turn_limit: int = Field(default=6, ge=1, le=50)
+    memory_summary_enabled: bool = Field(default=True)
+    memory_summary_start_turns: int = Field(default=8, ge=2, le=200)
+    memory_summary_max_chars: int = Field(default=1200, ge=100, le=8000)
+    memory_summary_batch_turns: int = Field(default=3, ge=1, le=50)
     
     cors_origins: list[str] = Field(
         default_factory=lambda: [
@@ -61,5 +66,13 @@ class Settings(BaseSettings):
             return v.resolve()
         return (PROJECT_ROOT / v).resolve()
 
+    @model_validator(mode="after")
+    def _validate_memory_config(self) -> Settings:
+        """校验 memory 摘要配置。"""
+        if self.memory_summary_start_turns <= self.memory_recent_turn_limit:
+            raise ValueError(
+                "memory_summary_start_turns must be greater than memory_recent_turn_limit"
+            )
+        return self
 
 settings = Settings()

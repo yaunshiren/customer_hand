@@ -11,6 +11,9 @@ from app.memory.entities import (
     ProductCatalog,
 )
 from app.memory.query_rewrite import QueryRewriteResult, QueryRewriter
+from app.memory.store import ConversationMemoryStore
+from app.memory.service import ConversationMemoryService
+from app.memory.summary import MemorySummaryService
 
 __all__ = [
     "DEFAULT_RECENT_TURN_LIMIT",
@@ -23,4 +26,7 @@ __all__ = [
     "ProductCatalog",
     "QueryRewriteResult",
     "QueryRewriter",
+    "ConversationMemoryStore",
+    "ConversationMemoryService",
+    "MemorySummaryService",
 ]
