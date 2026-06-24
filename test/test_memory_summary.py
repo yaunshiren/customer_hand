@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import Future
 from types import SimpleNamespace
 from typing import Any
 
@@ -100,6 +101,25 @@ class FakeLLMClient:
         }
 
 
+class DirectExecutor:
+    def submit(self, fn: Any, /, *args: Any, **kwargs: Any) -> Future:
+        future: Future = Future()
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except BaseException as exc:
+            future.set_exception(exc)
+        return future
+
+
+class RecordingExecutor:
+    def __init__(self) -> None:
+        self.submissions: list[tuple[Any, tuple[Any, ...], dict[str, Any]]] = []
+
+    def submit(self, fn: Any, /, *args: Any, **kwargs: Any) -> Future:
+        self.submissions.append((fn, args, kwargs))
+        return Future()
+
+
 def _patch_memory_settings(
     monkeypatch: Any,
     *,
@@ -119,20 +139,35 @@ def test_summary_skips_when_disabled(monkeypatch: Any) -> None:
     _patch_memory_settings(monkeypatch, enabled=False)
     store = FakeMemoryStore(messages=_conversation(5))
     llm = FakeLLMClient()
-    service = MemorySummaryService(store=store, llm_client=llm)  # type: ignore[arg-type]
+    service = MemorySummaryService(store=store, llm_client=llm, executor=DirectExecutor())  # type: ignore[arg-type]
 
     assert service.compress_if_needed(sender_id="u1", conversation_id="c1") is False
     assert llm.calls == []
     assert store.created_summaries == []
 
 
+def test_summary_schedules_background_task_without_running_inline(monkeypatch: Any) -> None:
+    _patch_memory_settings(monkeypatch, recent_turn_limit=2, start_turns=4, batch_turns=2)
+    store = FakeMemoryStore(messages=_conversation(4))
+    llm = FakeLLMClient()
+    executor = RecordingExecutor()
+    service = MemorySummaryService(store=store, llm_client=llm, executor=executor)  # type: ignore[arg-type]
+
+    assert service.compress_if_needed(sender_id="u1", conversation_id="c1") is True
+
+    assert len(executor.submissions) == 1
+    assert llm.calls == []
+    assert store.created_summaries == []
+    assert service.compress_if_needed(sender_id="u1", conversation_id="c1") is False
+
+
 def test_summary_skips_before_start_turn_threshold(monkeypatch: Any) -> None:
     _patch_memory_settings(monkeypatch, recent_turn_limit=2, start_turns=5, batch_turns=2)
     store = FakeMemoryStore(messages=_conversation(4))
     llm = FakeLLMClient()
-    service = MemorySummaryService(store=store, llm_client=llm)  # type: ignore[arg-type]
+    service = MemorySummaryService(store=store, llm_client=llm, executor=DirectExecutor())  # type: ignore[arg-type]
 
-    assert service.compress_if_needed(sender_id="u1", conversation_id="c1") is False
+    assert service.compress_if_needed(sender_id="u1", conversation_id="c1") is True
     assert llm.calls == []
     assert store.created_summaries == []
 
@@ -141,9 +176,9 @@ def test_summary_skips_until_stale_batch_reaches_threshold(monkeypatch: Any) -> 
     _patch_memory_settings(monkeypatch, recent_turn_limit=2, start_turns=4, batch_turns=3)
     store = FakeMemoryStore(messages=_conversation(4))
     llm = FakeLLMClient()
-    service = MemorySummaryService(store=store, llm_client=llm)  # type: ignore[arg-type]
+    service = MemorySummaryService(store=store, llm_client=llm, executor=DirectExecutor())  # type: ignore[arg-type]
 
-    assert service.compress_if_needed(sender_id="u1", conversation_id="c1") is False
+    assert service.compress_if_needed(sender_id="u1", conversation_id="c1") is True
     assert llm.calls == []
     assert store.created_summaries == []
 
@@ -152,7 +187,7 @@ def test_summary_creates_record_when_stale_batch_reaches_threshold(monkeypatch: 
     _patch_memory_settings(monkeypatch, recent_turn_limit=2, start_turns=4, batch_turns=2)
     store = FakeMemoryStore(messages=_conversation(4))
     llm = FakeLLMClient()
-    service = MemorySummaryService(store=store, llm_client=llm)  # type: ignore[arg-type]
+    service = MemorySummaryService(store=store, llm_client=llm, executor=DirectExecutor())  # type: ignore[arg-type]
 
     assert service.compress_if_needed(sender_id="u1", conversation_id="c1") is True
 
@@ -172,7 +207,7 @@ def test_summary_uses_latest_summary_boundary(monkeypatch: Any) -> None:
     latest_summary = SimpleNamespace(last_message_id=4, content="old compressed memory")
     store = FakeMemoryStore(messages=_conversation(5), summary=latest_summary)
     llm = FakeLLMClient('{"summary":"new compressed memory"}')
-    service = MemorySummaryService(store=store, llm_client=llm)  # type: ignore[arg-type]
+    service = MemorySummaryService(store=store, llm_client=llm, executor=DirectExecutor())  # type: ignore[arg-type]
 
     assert service.compress_if_needed(sender_id="u1", conversation_id="c1") is True
 
@@ -187,8 +222,8 @@ def test_summary_does_not_create_record_for_invalid_llm_json(monkeypatch: Any) -
     _patch_memory_settings(monkeypatch, recent_turn_limit=2, start_turns=4, batch_turns=2)
     store = FakeMemoryStore(messages=_conversation(4))
     llm = FakeLLMClient("not json")
-    service = MemorySummaryService(store=store, llm_client=llm)  # type: ignore[arg-type]
+    service = MemorySummaryService(store=store, llm_client=llm, executor=DirectExecutor())  # type: ignore[arg-type]
 
-    assert service.compress_if_needed(sender_id="u1", conversation_id="c1") is False
+    assert service.compress_if_needed(sender_id="u1", conversation_id="c1") is True
     assert len(llm.calls) == 1
     assert store.created_summaries == []

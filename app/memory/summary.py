@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from concurrent.futures import Executor, ThreadPoolExecutor
 from threading import Lock
 from typing import Any
 
@@ -13,6 +14,11 @@ from app.settings import settings
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_SUMMARY_EXECUTOR = ThreadPoolExecutor(
+    max_workers=2,
+    thread_name_prefix="memory-summary",
+)
+
 
 class MemorySummaryService:
     def __init__(
@@ -20,10 +26,13 @@ class MemorySummaryService:
         *,
         store: ConversationMemoryStore | None = None,
         llm_client: LLMClient | None = None,
+        executor: Executor | None = None,
     ) -> None:
         self.store = store or ConversationMemoryStore()
         self.llm_client = llm_client or LLMClient.from_env()
+        self.executor = executor or _DEFAULT_SUMMARY_EXECUTOR
         self._locks: dict[str, Lock] = {}
+        self._locks_guard = Lock()
 
     def compress_if_needed(
         self,
@@ -31,16 +40,49 @@ class MemorySummaryService:
         sender_id: str,
         conversation_id: str | None = None,
     ) -> bool:
+        """Schedule a background summary task.
+
+        Returns True when a task is accepted by the local executor. The actual
+        compression decision still happens inside the background task.
+        """
         if not settings.memory_summary_enabled:
             return False
         if not self.llm_client.enabled:
             return False
 
         lock_key = conversation_id or sender_id
-        lock = self._locks.setdefault(lock_key, Lock())
+        lock = self._lock_for(lock_key)
         if not lock.acquire(blocking=False):
             return False
 
+        try:
+            self.executor.submit(
+                self._run_compress_task,
+                lock,
+                sender_id=sender_id,
+                conversation_id=conversation_id,
+            )
+            return True
+        except Exception:
+            lock.release()
+            logger.exception(
+                "memory.summary.schedule_failed sender_id=%s conversation_id=%s",
+                sender_id,
+                conversation_id,
+            )
+            return False
+
+    def _lock_for(self, lock_key: str) -> Lock:
+        with self._locks_guard:
+            return self._locks.setdefault(lock_key, Lock())
+
+    def _run_compress_task(
+        self,
+        lock: Lock,
+        *,
+        sender_id: str,
+        conversation_id: str | None,
+    ) -> bool:
         try:
             return self._compress(sender_id=sender_id, conversation_id=conversation_id)
         except Exception:
