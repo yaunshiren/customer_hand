@@ -22,6 +22,11 @@ def _intent_response_metadata(intent_result: Any, route_decision: Any) -> dict[s
     if intent_data:
         metadata["intentSource"] = intent_data.get("source") or "unknown"
         metadata["intentConfidence"] = intent_data.get("confidence")
+        metadata["intentKind"] = intent_data.get("intent_kind")
+        metadata["intentRoute"] = intent_data.get("route")
+        metadata["intentCandidates"] = intent_data.get("candidates") or []
+        metadata["needsClarification"] = bool(intent_data.get("needs_clarification"))
+        metadata["clarifyReason"] = intent_data.get("clarify_reason")
 
     if decision_data:
         metadata["execution_route"] = decision_data.get("execution_route")

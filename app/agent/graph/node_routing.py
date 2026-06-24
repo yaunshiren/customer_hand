@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 def _graph_route_from_execution(execution_route: str) -> str:
     if execution_route == "tool":
         return "action"
+    if execution_route == "system_response":
+        return "chitchat"
     return execution_route
 
 
@@ -50,6 +52,14 @@ def _business_clarify_reply(classification: Any) -> str:
     return "请补充一下具体信息，我再继续处理。"
 
 
+def _intent_clarify_reply(intent_result: Any) -> str:
+    data = _model_dump(intent_result)
+    question = str(data.get("clarify_question") or "").strip()
+    if question:
+        return question
+    return "我还不太确定你的具体需求，可以补充一下你想咨询的问题吗？"
+
+
 def _business_route_name(classification: Any, *, has_set_slot: bool) -> str | None:
     if has_set_slot:
         return None
@@ -72,12 +82,43 @@ def _business_route_name(classification: Any, *, has_set_slot: bool) -> str | No
 def _should_use_business_route(route_name: str | None, route_decision: Any | None) -> bool:
     if route_name is None:
         return False
-    if route_name != "rag":
-        return True
 
     decision_data = _model_dump(route_decision)
     execution_route = str(decision_data.get("execution_route") or "").strip()
-    return execution_route in {"", "rag", "fallback"}
+    if execution_route in {"", "fallback"}:
+        return True
+    if route_name == "clarify" and execution_route in {"clarify", "tool", "flow"}:
+        return True
+    if route_name == "rag" and execution_route == "rag":
+        return True
+    if route_name == "tool" and execution_route == "tool":
+        return True
+    if route_name == "ticket" and execution_route == "ticket":
+        return True
+    if route_name == "flow" and execution_route == "flow":
+        return True
+    return False
+
+
+def _should_use_intent_route_decision(
+    route_decision: Any | None,
+    intent_result: Any | None,
+    results: list[dict[str, Any]],
+) -> bool:
+    if route_decision is None or intent_result is None:
+        return False
+    if _has_command_type(results, "set_slot"):
+        return False
+
+    decision_data = _model_dump(route_decision)
+    execution_route = str(decision_data.get("execution_route") or "").strip()
+    if execution_route == "clarify":
+        return True
+
+    intent_data = _model_dump(intent_result)
+    if str(intent_data.get("clarify_reason") or "").strip() == "low_confidence":
+        return False
+    return str(intent_data.get("intent_id") or "").strip() != "UNKNOWN"
 
 
 def _is_unknown_or_fallback_route_decision(route_decision: Any | None) -> bool:
@@ -184,21 +225,21 @@ def route(state: AgentState) -> AgentState:
                 },
             }
 
-    if _should_use_business_route(business_route_name, route_decision):
+    if (
+        tool_safety.get("decision") == "confirmed"
+        and business_route_name == "tool"
+    ) or _should_use_business_route(business_route_name, route_decision):
         route_name = business_route_name
         if route_name != "flow" and _has_command_type(results, "start_flow"):
             _clear_started_flow(tracker)
         if route_name == "clarify" and not reply_text:
             reply_text = _business_clarify_reply(business_classification)
-    elif (
-        route_decision is not None
-        and intent_result is not None
-        and getattr(intent_result, "intent_id", None) != "UNKNOWN"
-        and not _has_command_type(results, "set_slot")
-    ):
+    elif _should_use_intent_route_decision(route_decision, intent_result, results):
         route_name = _graph_route_from_execution(str(route_decision.execution_route))
         if route_name != "flow" and _has_command_type(results, "start_flow"):
             _clear_started_flow(tracker)
+        if route_name == "clarify" and not reply_text:
+            reply_text = _intent_clarify_reply(intent_result)
     elif _has_command_type(results, "ticket"):
         route_name = "ticket"
     elif _has_command_type(results, "knowledge_answer"):

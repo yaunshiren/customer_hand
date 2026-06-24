@@ -104,11 +104,11 @@ def test_hybrid_retriever_emits_channel_and_rerank_trace_payload(monkeypatch) ->
     assert result.matches
     records = captured["records"]
     assert captured["query"] == "售后政策"
-    assert {item["channel"] for item in records} == {"keyword", "vector", "intent"}
+    assert {item["channel"] for item in records} == {"bm25", "vector_global", "intent_directed"}
     assert {item["doc_id"] for item in records} == {"DOC_KEYWORD", "DOC_VECTOR", "DOC_INTENT"}
     assert all(item["content"] for item in records)
     assert any(item["rerank_score"] is not None for item in records)
-    assert any(item["channel"] == "intent" and item["score"] > 0 for item in records)
+    assert any(item["channel"] == "intent_directed" and item["score"] > 0 for item in records)
 
 
 def test_keyword_retriever_emits_retrieval_trace_payload(monkeypatch) -> None:

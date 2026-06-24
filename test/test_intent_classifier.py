@@ -130,7 +130,7 @@ def test_intent_prompt_builder_includes_schema_taxonomy_and_rule_candidates(
 
     assert "只能输出 JSON" in system_prompt
     assert "intent_id" in system_prompt
-    assert "intent_tree" in user_prompt
+    assert "intent_leaf_nodes" in user_prompt
     assert "rule_candidates" in user_prompt
     assert "S16_物流配送" in user_prompt
 
@@ -183,6 +183,57 @@ def test_llm_intent_classifier_resolves_alias_candidate_ids(taxonomy: IntentTaxo
     assert result.intent_id == "S9_配网连接"
     assert result.candidates[0].intent_id == "S9_配网连接"
     assert result.source == "llm_classifier"
+
+
+def test_llm_intent_classifier_delegates_low_confidence_to_llm_router(
+    taxonomy: IntentTaxonomy,
+) -> None:
+    intent = taxonomy.enabled_leaf_definitions[0]
+    fake_llm = FakeLLMClient(
+        f"""
+        {{
+          "intent_id": "{intent.id}",
+          "confidence": 0.48,
+          "candidates": [{{"intent_id": "{intent.id}", "confidence": 0.48}}],
+          "reason": "low confidence test"
+        }}
+        """
+    )
+    classifier = IntentClassifier(taxonomy, llm_client=fake_llm)
+
+    result = classifier.classify("this is vague")
+
+    assert result.intent_id == intent.id
+    assert result.needs_clarification is False
+    assert result.clarify_reason == "low_confidence"
+    assert result.clarify_question is None
+
+
+def test_llm_intent_classifier_still_clarifies_small_margin(
+    taxonomy: IntentTaxonomy,
+) -> None:
+    first, second = taxonomy.enabled_leaf_definitions[:2]
+    fake_llm = FakeLLMClient(
+        f"""
+        {{
+          "intent_id": "{first.id}",
+          "confidence": 0.58,
+          "candidates": [
+            {{"intent_id": "{first.id}", "confidence": 0.58}},
+            {{"intent_id": "{second.id}", "confidence": 0.52}}
+          ],
+          "reason": "small margin test"
+        }}
+        """
+    )
+    classifier = IntentClassifier(taxonomy, llm_client=fake_llm)
+
+    result = classifier.classify("this is ambiguous")
+
+    assert result.intent_id == first.id
+    assert result.needs_clarification is True
+    assert result.clarify_reason == "small_margin"
+    assert result.clarify_question
 
 
 def test_llm_intent_classifier_falls_back_to_rule_when_llm_disabled(taxonomy: IntentTaxonomy) -> None:

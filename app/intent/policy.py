@@ -29,6 +29,14 @@ class IntentRoutePolicy:
         intent_type = intent_result.intent_type
         candidate_ids = _candidate_ids(intent_result)
 
+        if intent_result.needs_clarification:
+            return RouteDecision(
+                execution_route="clarify",
+                system_route="clarify",
+                reason=intent_result.clarify_reason or "意图置信度不足，需要澄清",
+                requires_rag=False,
+            )
+
         if intent_id == "UNKNOWN" or intent_type == "UNKNOWN":
             return RouteDecision(
                 execution_route="fallback",
@@ -52,6 +60,10 @@ class IntentRoutePolicy:
                 reason="问题超出售后客服业务范围，礼貌说明服务边界，不触发 RAG",
                 requires_rag=False,
             )
+
+        contract_decision = _contract_route_decision(intent_result)
+        if contract_decision is not None:
+            return contract_decision
 
         if intent_id == "F2_功能建议":
             return RouteDecision(
@@ -172,6 +184,53 @@ class IntentRoutePolicy:
             reason="未命中明确路由策略，进入兜底追问",
             requires_rag=False,
         )
+
+
+def _contract_route_decision(intent_result: IntentResult) -> RouteDecision | None:
+    execution_route = intent_result.route or _route_for_kind(intent_result)
+    if not execution_route:
+        return None
+
+    system_route = _system_route_for_contract(intent_result, execution_route)
+    return RouteDecision(
+        execution_route=execution_route,
+        system_route=system_route,
+        reason=f"{intent_result.intent_name}由意图树路由契约指定为 {execution_route}",
+        requires_rag=execution_route == "rag",
+    )
+
+
+def _route_for_kind(intent_result: IntentResult) -> ExecutionRoute | None:
+    kind = str(intent_result.intent_kind or "").strip()
+    if kind == "KB":
+        return "rag"
+    if kind in {"MCP", "TOOL"}:
+        return "tool"
+    if kind == "TICKET":
+        return "ticket"
+    if kind == "SYSTEM":
+        return "system_response"
+    if kind == "FLOW":
+        return "flow"
+    if kind == "CHITCHAT":
+        return "chitchat"
+    return None
+
+
+def _system_route_for_contract(intent_result: IntentResult, execution_route: ExecutionRoute) -> str:
+    if execution_route == "rag":
+        return _system_route_for_intent_type(intent_result.intent_type)
+    if execution_route == "tool":
+        return "tool"
+    if execution_route == "ticket":
+        return "ticket"
+    if execution_route == "flow":
+        return "flow"
+    if execution_route in {"chitchat", "system_response"}:
+        return "chitchat"
+    if execution_route == "clarify":
+        return "clarify"
+    return "unknown"
 
 
 def _rag_first_decision(

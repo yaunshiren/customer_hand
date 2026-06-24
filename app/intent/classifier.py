@@ -98,6 +98,8 @@ class RuleIntentCandidateProvider:
                 intent_id="UNKNOWN",
                 intent_name="未知",
                 intent_type="UNKNOWN",
+                intent_kind="UNKNOWN",
+                route="fallback",
                 confidence=0.0,
                 candidates=[],
                 reason="规则未命中高置信意图",
@@ -111,6 +113,8 @@ class RuleIntentCandidateProvider:
                 intent_id="UNKNOWN",
                 intent_name="未知",
                 intent_type="UNKNOWN",
+                intent_kind="UNKNOWN",
+                route="fallback",
                 confidence=0.0,
                 candidates=candidates,
                 reason=f"规则命中未知意图：{top.intent_id}",
@@ -121,6 +125,8 @@ class RuleIntentCandidateProvider:
             intent_id=definition.id,
             intent_name=definition.name,
             intent_type=definition.type,
+            intent_kind=definition.kind,
+            route=definition.route,
             confidence=top.confidence,
             candidates=candidates,
             reason=self._reason_for(definition.id),
@@ -151,9 +157,15 @@ class IntentClassifier:
         self.rule_candidate_limit = rule_candidate_limit
 
     def classify(self, text: str) -> IntentResult:
-        rule_candidates = self.rule_provider.candidates(text, limit=self.rule_candidate_limit)
+        rule_candidates = self.rule_provider.candidates(
+            text,
+            limit=self.rule_candidate_limit,
+        )
+
         if not getattr(self.llm_client, "enabled", False):
-            return self.rule_provider.fallback_result(text)
+            return self._apply_clarification(
+                self.rule_provider.fallback_result(text)
+            )
 
         system_prompt, user_prompt = self.prompt_builder.build(
             taxonomy=self.taxonomy,
@@ -166,14 +178,19 @@ class IntentClassifier:
             temperature=0,
             top_p=1,
         )
+
         if not llm_result.get("success") or not str(llm_result.get("raw_output") or "").strip():
-            return self.rule_provider.fallback_result(text)
+            return self._apply_clarification(
+                self.rule_provider.fallback_result(text)
+            )
 
         try:
             payload = _extract_json_object(str(llm_result.get("raw_output") or ""))
             return self._build_llm_result(payload, rule_candidates=rule_candidates)
         except (TypeError, ValueError, json.JSONDecodeError):
-            return self.rule_provider.fallback_result(text)
+            return self._apply_clarification(
+                self.rule_provider.fallback_result(text)
+            )
 
     def _build_llm_result(
         self,
@@ -181,27 +198,67 @@ class IntentClassifier:
         *,
         rule_candidates: list[IntentCandidate],
     ) -> IntentResult:
-        intent_id = self._resolve_required_intent_id(payload.get("intent_id"))
-        confidence = _parse_confidence(payload.get("confidence"))
-        definition = self.taxonomy.get_definition(intent_id)
-        if definition is None:
-            raise ValueError(f"unknown intent id: {intent_id}")
-
         candidates = self._parse_candidates(payload.get("candidates"))
-        if not any(candidate.intent_id == intent_id for candidate in candidates):
-            candidates.insert(0, IntentCandidate(intent_id=intent_id, confidence=confidence))
+
+        # 兼容旧格式：如果 LLM 仍然返回顶层 intent_id/confidence，也纳入候选。
+        top_level_candidate = self._parse_top_level_candidate(payload)
+        if top_level_candidate is not None:
+            candidates.append(top_level_candidate)
+
         candidates = _dedupe_candidates(candidates)
 
-        reason = payload.get("reason")
-        return IntentResult(
+        reason = _clean_optional_str(payload.get("reason"))
+
+        if not candidates:
+            return self._apply_clarification(
+                self._rule_fallback_from_candidates(
+                    rule_candidates,
+                    reason=reason or "LLM 未返回可用候选意图",
+                )
+            )
+
+        top = candidates[0]
+        definition = self.taxonomy.get_definition(top.intent_id)
+        if definition is None:
+            return self._apply_clarification(
+                self._unknown_result(
+                    candidates=candidates,
+                    reason=f"LLM 返回了未知意图：{top.intent_id}",
+                    source="llm_classifier",
+                )
+            )
+
+        result = IntentResult(
             intent_id=definition.id,
             intent_name=definition.name,
             intent_type=definition.type,
-            confidence=confidence,
+            intent_kind=definition.kind,
+            route=definition.route,
+            confidence=top.confidence,
             candidates=candidates or rule_candidates,
-            reason=str(reason).strip() if reason is not None and str(reason).strip() else None,
+            reason=reason,
             source="llm_classifier",
         )
+        return self._apply_clarification(result)
+
+    def _parse_top_level_candidate(self, payload: dict[str, Any]) -> IntentCandidate | None:
+        raw_intent_id = payload.get("intent_id") or payload.get("id")
+        if not isinstance(raw_intent_id, str) or not raw_intent_id.strip():
+            return None
+
+        if raw_intent_id.strip().upper() == "UNKNOWN":
+            return None
+
+        try:
+            intent_id = self._resolve_required_intent_id(raw_intent_id)
+            if not self._is_selectable_intent(intent_id):
+                return None
+
+            raw_confidence = payload.get("confidence", payload.get("score"))
+            confidence = _parse_confidence(raw_confidence)
+            return IntentCandidate(intent_id=intent_id, confidence=confidence)
+        except ValueError:
+            return None
 
     def _parse_candidates(self, raw_candidates: Any) -> list[IntentCandidate]:
         if raw_candidates is None:
@@ -212,19 +269,150 @@ class IntentClassifier:
         candidates: list[IntentCandidate] = []
         for raw in raw_candidates:
             if not isinstance(raw, dict):
-                raise ValueError("candidate item must be an object")
-            intent_id = self._resolve_required_intent_id(raw.get("intent_id"))
-            confidence = _parse_confidence(raw.get("confidence"))
-            candidates.append(IntentCandidate(intent_id=intent_id, confidence=confidence))
+                continue
+
+            raw_intent_id = raw.get("intent_id") or raw.get("id")
+            if not isinstance(raw_intent_id, str) or not raw_intent_id.strip():
+                continue
+            if raw_intent_id.strip().upper() == "UNKNOWN":
+                continue
+
+            try:
+                intent_id = self._resolve_required_intent_id(raw_intent_id)
+                if not self._is_selectable_intent(intent_id):
+                    continue
+
+                raw_confidence = raw.get("confidence", raw.get("score"))
+                confidence = _parse_confidence(raw_confidence)
+            except ValueError:
+                continue
+
+            candidates.append(
+                IntentCandidate(
+                    intent_id=intent_id,
+                    confidence=confidence,
+                    reason=_clean_optional_str(raw.get("reason")),
+                )
+            )
+
         return sorted(candidates, key=lambda item: (-item.confidence, item.intent_id))[:3]
 
     def _resolve_required_intent_id(self, value: Any) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("intent_id is required")
+
         intent_id = self.taxonomy.resolve_id(value)
         if intent_id is None:
             raise ValueError(f"unknown intent id: {value}")
         return intent_id
+
+    def _is_selectable_intent(self, intent_id: str) -> bool:
+        definitions = getattr(self.taxonomy, "enabled_leaf_definitions", None)
+        if definitions is None:
+            return True
+
+        selectable_ids = {item.id for item in definitions}
+        if not selectable_ids:
+            return True
+        return intent_id in selectable_ids
+
+    def _apply_clarification(self, result: IntentResult) -> IntentResult:
+        config = self.taxonomy.clarification
+        candidates = result.candidates
+
+        if len(candidates) >= 2:
+            margin = candidates[0].confidence - candidates[1].confidence
+            if margin < config.min_margin:
+                return result.model_copy(
+                    update={
+                        "needs_clarification": True,
+                        "clarify_reason": "small_margin",
+                        "clarify_question": self._ambiguous_question(candidates[:2]),
+                    }
+                )
+
+        if result.intent_id == "UNKNOWN" or result.intent_type == "UNKNOWN":
+            return result.model_copy(
+                update={
+                    "needs_clarification": False,
+                    "clarify_reason": "unknown_intent",
+                    "clarify_question": None,
+                }
+            )
+
+        if result.confidence < config.min_confidence:
+            return result.model_copy(
+                update={
+                    "needs_clarification": False,
+                    "clarify_reason": "low_confidence",
+                    "clarify_question": None,
+                }
+            )
+
+        return result
+
+    def _clarify_question_for(self, result: IntentResult) -> str:
+        definition = self.taxonomy.get_definition(result.intent_id)
+        if definition is not None and definition.clarify_question:
+            return definition.clarify_question
+        return self.taxonomy.clarification.default_question
+
+    def _ambiguous_question(self, candidates: list[IntentCandidate]) -> str:
+        names: list[str] = []
+        for candidate in candidates:
+            definition = self.taxonomy.get_definition(candidate.intent_id)
+            if definition is not None:
+                names.append(definition.name)
+
+        if len(names) >= 2:
+            return f"你是想咨询「{names[0]}」，还是「{names[1]}」？"
+        return self.taxonomy.clarification.default_question
+
+    def _unknown_result(
+        self,
+        *,
+        candidates: list[IntentCandidate],
+        reason: str,
+        source: str,
+    ) -> IntentResult:
+        return IntentResult(
+            intent_id="UNKNOWN",
+            intent_name="未知",
+            intent_type="UNKNOWN",
+            intent_kind="UNKNOWN",
+            route="fallback",
+            confidence=0.0,
+            candidates=candidates,
+            reason=reason,
+            source=source,
+        )
+
+    def _rule_fallback_from_candidates(
+        self,
+        candidates: list[IntentCandidate],
+        *,
+        reason: str,
+    ) -> IntentResult:
+        for candidate in candidates:
+            definition = self.taxonomy.get_definition(candidate.intent_id)
+            if definition is None:
+                continue
+            return IntentResult(
+                intent_id=definition.id,
+                intent_name=definition.name,
+                intent_type=definition.type,
+                intent_kind=definition.kind,
+                route=definition.route,
+                confidence=candidate.confidence,
+                candidates=candidates,
+                reason=reason,
+                source="rule_fallback",
+            )
+        return self._unknown_result(
+            candidates=candidates,
+            reason=reason,
+            source="llm_classifier",
+        )
 
 
 def _parse_confidence(value: Any) -> float:
@@ -232,6 +420,7 @@ def _parse_confidence(value: Any) -> float:
         confidence = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError("confidence must be a number") from exc
+
     if confidence < 0 or confidence > 1:
         raise ValueError("confidence must be between 0 and 1")
     return confidence
@@ -239,16 +428,32 @@ def _parse_confidence(value: Any) -> float:
 
 def _dedupe_candidates(candidates: list[IntentCandidate]) -> list[IntentCandidate]:
     by_id: dict[str, IntentCandidate] = {}
+
     for candidate in candidates:
         existing = by_id.get(candidate.intent_id)
         if existing is None or candidate.confidence > existing.confidence:
             by_id[candidate.intent_id] = candidate
-    return sorted(by_id.values(), key=lambda item: (-item.confidence, item.intent_id))[:3]
+
+    return sorted(
+        by_id.values(),
+        key=lambda item: (-item.confidence, item.intent_id),
+    )[:3]
+
+
+def _clean_optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _extract_json_object(raw_output: str) -> dict[str, Any]:
     text = raw_output.strip()
-    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+    fenced = re.search(
+        r"```(?:json)?\s*(\{.*?\})\s*```",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
     if fenced:
         text = fenced.group(1).strip()
 

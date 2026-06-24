@@ -41,6 +41,23 @@ class EmptyCommandGenerator:
         return {"handled": False, "reply_text": None, "results": [], "raw_output": ""}
 
 
+class RecordingCommandGenerator:
+    enabled = True
+
+    def __init__(self, results: list[dict[str, object]]) -> None:
+        self.results = results
+        self.calls: list[tuple[str, list[str] | None]] = []
+
+    def generate(self, tracker, text: str, flow_ids: list[str] | None = None) -> dict[str, object]:
+        self.calls.append((text, flow_ids))
+        return {"handled": False, "reply_text": None, "results": self.results, "raw_output": ""}
+
+
+class UnknownBusinessClassifier:
+    def classify(self, *args, **kwargs) -> dict[str, object]:
+        return {"route": "fallback", "question_type": "unknown", "confidence": 0.0}
+
+
 class RecordingKnowledgeAnswerer(KnowledgeAnswerer):
     def __init__(self) -> None:
         self.calls: list[tuple[str, int, str | None]] = []
@@ -115,6 +132,40 @@ def test_understand_adds_intent_result_to_state() -> None:
     assert classifier.calls == ["我能改收货地址吗？已经发货了"]
 
 
+def test_understand_delegates_low_confidence_intent_to_llm_generator() -> None:
+    low_confidence_intent = IntentResult(
+        intent_id="S2_params",
+        intent_name="params",
+        intent_type="KB",
+        confidence=0.48,
+        candidates=[IntentCandidate(intent_id="S2_params", confidence=0.48)],
+        reason="low confidence",
+        source="llm_classifier",
+        clarify_reason="low_confidence",
+    )
+    classifier = FakeClassifier(low_confidence_intent)
+    generator = RecordingCommandGenerator(
+        [{"type": "ticket", "success": True, "data": {"reason": "llm routed"}}]
+    )
+    tracker = DialogueStateTracker("intent_low_confidence_user")
+
+    state = understand(
+        {
+            "sender_id": "intent_low_confidence_user",
+            "message": "this is vague",
+            "tracker": tracker,
+            "flows": {},
+            "llm_generator": generator,
+            "intent_classifier": classifier,
+            "business_classifier": UnknownBusinessClassifier(),
+        }
+    )
+
+    assert generator.calls == [("this is vague", [])]
+    assert state["llm_results"] == [{"type": "ticket", "success": True, "data": {"reason": "llm routed"}}]
+    assert state["llm_result"].get("skipped") is not True
+
+
 def test_route_uses_existing_intent_result_without_reclassifying() -> None:
     tracker = DialogueStateTracker("intent_route_user")
 
@@ -134,6 +185,35 @@ def test_route_uses_existing_intent_result_without_reclassifying() -> None:
 
     assert state["route"] == "ticket"
     assert state["route_decision"]["system_route"] == "ticket"
+
+
+def test_route_low_confidence_intent_yields_to_llm_results() -> None:
+    tracker = DialogueStateTracker("intent_low_confidence_route_user")
+
+    state = route(
+        {
+            "sender_id": "intent_low_confidence_route_user",
+            "message": "this is vague",
+            "tracker": tracker,
+            "llm_result": {"handled": False},
+            "llm_results": [{"type": "ticket", "success": True, "data": {"reason": "llm routed"}}],
+            "reply_text": None,
+            "llm_generator": EmptyCommandGenerator(),
+            "intent_result": IntentResult(
+                intent_id="S2_params",
+                intent_name="params",
+                intent_type="KB",
+                confidence=0.48,
+                candidates=[IntentCandidate(intent_id="S2_params", confidence=0.48)],
+                reason="low confidence",
+                source="llm_classifier",
+                clarify_reason="low_confidence",
+            ),
+        }
+    )
+
+    assert state["route"] == "ticket"
+    assert state["route_decision"]["execution_route"] == "rag"
 
 
 def test_route_falls_back_to_legacy_logic_when_intent_missing() -> None:

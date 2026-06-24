@@ -9,8 +9,11 @@ from app.rag.indexer import RetrievalMatch
 
 
 CHANNEL_WEIGHTS: dict[str, float] = {
+    "bm25": 1.0,
     "keyword": 1.0,
+    "vector_global": 1.0,
     "vector": 1.0,
+    "intent_directed": 0.65,
     "intent": 0.45,
 }
 
@@ -79,9 +82,12 @@ def merge_channel_matches(matches: Iterable[ChannelMatch], top_k: int) -> list[R
 
 
 def normalize_score(channel: str, score: float) -> float:
+    if channel == "bm25":
+        score = max(0.0, score)
+        return score / (score + 8.0) if score else 0.0
     if channel == "keyword":
         return min(1.0, max(0.0, score / 12.0))
-    if channel in {"vector", "intent"}:
+    if channel in {"vector", "vector_global", "intent", "intent_directed"}:
         return min(1.0, max(0.0, score))
     return max(0.0, score)
 

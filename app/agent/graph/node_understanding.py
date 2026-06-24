@@ -29,6 +29,29 @@ def _can_skip_llm_understanding(classification: Any) -> bool:
     return route_name in {"tool", "clarify"} and question_type != "unknown" and confidence >= 0.7
 
 
+def _can_skip_llm_for_confident_rag_intent(intent_result: Any | None) -> bool:
+    data = _model_dump(intent_result)
+    if not data:
+        return False
+
+    intent_id = str(data.get("intent_id") or "").strip()
+    route_name = str(data.get("route") or "").strip()
+    intent_kind = str(data.get("intent_kind") or data.get("kind") or "").strip()
+    intent_type = str(data.get("intent_type") or data.get("type") or "").strip()
+    confidence = float(data.get("confidence") or 0.0)
+    needs_clarification = bool(data.get("needs_clarification"))
+
+    if not intent_id or intent_id == "UNKNOWN" or needs_clarification or confidence < 0.7:
+        return False
+    if route_name:
+        return route_name == "rag"
+    return intent_kind == "KB" or intent_type == "KB"
+
+
+def _intent_needs_clarification(intent_result: Any | None) -> bool:
+    return bool(_model_dump(intent_result).get("needs_clarification"))
+
+
 def _can_skip_llm_for_pending_confirmation(state: AgentState, message: str, tracker: Any) -> bool:
     pending = _pending_tool_confirmation(tracker)
     if not pending:
@@ -76,9 +99,9 @@ def understand(state: AgentState) -> AgentState:
         "llm_generator": llm_generator,
     }
     intent_result: Any | None = None
-    business_classification = _classify_business_question(state, message, tracker, None)
+    business_classification: Any | None = None
 
-    if _can_skip_llm_for_pending_confirmation(state, message, tracker) or _can_skip_llm_understanding(business_classification):
+    if _can_skip_llm_for_pending_confirmation(state, message, tracker):
         return {
             **state,
             "sender_id": sender_id,
@@ -90,7 +113,7 @@ def understand(state: AgentState) -> AgentState:
                 "reply_text": None,
                 "results": [],
                 "skipped": True,
-                "reason": "deterministic_business_route",
+                "reason": "pending_tool_confirmation",
             },
             "llm_results": [],
             "handled": False,
@@ -100,6 +123,46 @@ def understand(state: AgentState) -> AgentState:
 
     intent_result = _classify_intent(state, message)
     business_classification = _classify_business_question(state, message, tracker, intent_result)
+
+    if _intent_needs_clarification(intent_result):
+        return {
+            **state,
+            "sender_id": sender_id,
+            "message": message,
+            "intent_result": intent_result,
+            "business_classification": business_classification,
+            "llm_result": {
+                "handled": False,
+                "reply_text": None,
+                "results": [],
+                "skipped": True,
+                "reason": "intent_requires_clarification",
+            },
+            "llm_results": [],
+            "handled": False,
+            "reply_text": None,
+            "command_types": [],
+        }
+
+    if _can_skip_llm_for_confident_rag_intent(intent_result):
+        return {
+            **state,
+            "sender_id": sender_id,
+            "message": message,
+            "intent_result": intent_result,
+            "business_classification": business_classification,
+            "llm_result": {
+                "handled": False,
+                "reply_text": None,
+                "results": [],
+                "skipped": True,
+                "reason": "confident_rag_intent",
+            },
+            "llm_results": [],
+            "handled": False,
+            "reply_text": None,
+            "command_types": [],
+        }
 
     if _can_skip_llm_understanding(business_classification):
         return {
