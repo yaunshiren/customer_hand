@@ -17,6 +17,7 @@ ENV/
 data/chroma/
 data/chroma_smoke/
 docs/
+runs/
 
 # Logs
 *.log
