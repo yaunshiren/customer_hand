@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 from openai import OpenAI
+from pydantic import BaseModel, ValidationError
 
 from app.utils.telemetry import emit_llm_event
 
@@ -97,6 +99,11 @@ class LLMClient:
         *,
         temperature: float | None = None,
         top_p: float | None = None,
+        response_format: dict[str, Any] | None = None,
+        response_model: type[BaseModel] | None = None,
+        use_json_schema: bool = False,
+        json_schema_name: str | None = None,
+        json_schema_strict: bool = True,
     ) -> dict[str, Any]:
         start_time = time.perf_counter()
 
@@ -137,14 +144,50 @@ class LLMClient:
             }
             if top_p is not None:
                 request_kwargs["top_p"] = top_p
+            if response_format is not None:
+                request_kwargs["response_format"] = response_format
+            elif use_json_schema and response_model is not None:
+                request_kwargs["response_format"] = self._build_json_schema_response_format(
+                    response_model,
+                    name=json_schema_name,
+                    strict=json_schema_strict,
+                )
+
             response = client.chat.completions.create(**request_kwargs)
             raw_output = response.choices[0].message.content or ""
+            usage = self._record_usage(response)
+            json_output: Any | None = None
+            if response_format is not None or response_model is not None:
+                try:
+                    json_output = self._validate_json_output(
+                        raw_output=raw_output,
+                        response_model=response_model,
+                    )
+                except ValueError as exc:
+                    result = self._build_result(
+                        success=False,
+                        raw_output=raw_output,
+                        usage=usage,
+                        latency_ms=self._latency_ms(start_time),
+                        error=str(exc),
+                    )
+                    emit_llm_event(
+                        "completion",
+                        model=self.model,
+                        success=False,
+                        latency_ms=result["latency_ms"],
+                        usage=result["usage"],
+                        error=result.get("error"),
+                    )
+                    return result
+
             result = self._build_result(
                 success=True,
                 raw_output=raw_output,
-                usage=self._record_usage(response),
+                usage=usage,
                 latency_ms=self._latency_ms(start_time),
                 error=None,
+                json_output=json_output,
             )
             emit_llm_event(
                 "completion",
@@ -186,6 +229,77 @@ class LLMClient:
             max_retries=max(0, self.max_retries),
         )
 
+    def _build_json_schema_response_format(
+        self,
+        response_model: type[BaseModel],
+        *,
+        name: str | None,
+        strict: bool,
+    ) -> dict[str, Any]:
+        schema_name = self._safe_schema_name(name or response_model.__name__)
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema_name,
+                "schema": response_model.model_json_schema(),
+                "strict": strict,
+            },
+        }
+
+    def _validate_json_output(
+        self,
+        *,
+        raw_output: str,
+        response_model: type[BaseModel] | None,
+    ) -> Any:
+        payload = self._extract_json_value(raw_output)
+        if response_model is None:
+            return payload
+
+        try:
+            validated = response_model.model_validate(payload)
+        except ValidationError as exc:
+            raise ValueError(
+                f"LLM JSON validation failed for {response_model.__name__}: {exc}"
+            ) from exc
+        return validated.model_dump()
+
+    def _extract_json_value(self, raw_output: str) -> Any:
+        text = raw_output.strip()
+        if not text:
+            raise ValueError("LLM output is empty, expected JSON")
+
+        for candidate in self._json_candidates(text):
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+
+        raise ValueError("LLM output is not valid JSON")
+
+    def _json_candidates(self, text: str) -> list[str]:
+        candidates: list[str] = []
+
+        for match in re.finditer(r"```(?:json)?\s*([\s\S]*?)\s*```", text, re.IGNORECASE):
+            candidates.append(match.group(1).strip())
+
+        object_start = text.find("{")
+        object_end = text.rfind("}")
+        if object_start != -1 and object_end != -1 and object_end > object_start:
+            candidates.append(text[object_start : object_end + 1])
+
+        list_start = text.find("[")
+        list_end = text.rfind("]")
+        if list_start != -1 and list_end != -1 and list_end > list_start:
+            candidates.append(text[list_start : list_end + 1])
+
+        candidates.append(text)
+        return candidates
+
+    def _safe_schema_name(self, value: str) -> str:
+        name = re.sub(r"[^A-Za-z0-9_-]+", "_", value).strip("_")
+        return name[:64] or "json_response"
+
     def _direct_httpx_smoke_test(self) -> None:
         url = f"{self.base_url.rstrip('/')}/chat/completions"
         payload = {
@@ -225,8 +339,9 @@ class LLMClient:
         latency_ms: int,
         error: str | None,
         usage: dict[str, int] | None = None,
+        json_output: Any | None = None,
     ) -> dict[str, Any]:
-        return {
+        result = {
             "success": success,
             "raw_output": raw_output,
             "usage": usage or self._empty_usage(),
@@ -234,6 +349,9 @@ class LLMClient:
             "model": self.model,
             "error": error,
         }
+        if json_output is not None:
+            result["json_output"] = json_output
+        return result
 
     def _empty_usage(self) -> dict[str, int]:
         return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}

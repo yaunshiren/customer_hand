@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from app.dialogue.command_parser import CommandParser
 from app.dialogue.command_processor import CommandProcessor
 from app.llm.client import LLMClient
@@ -9,6 +11,12 @@ from app.llm.prompts import CommandPromptBuilder
 from app.utils.telemetry import emit_llm_event
 
 DEFAULT_CHITCHAT_REPLY = "您好！我是智能客服，请问有什么可以帮您？"
+
+
+class CommandGenerationPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    commands: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class LLMCommandGenerator:
@@ -29,7 +37,12 @@ class LLMCommandGenerator:
             user_message=text,
             available_flows=self._build_available_flows(flow_ids),
         )
-        llm_result = self.client.generate_json(system_prompt=system_prompt, user_prompt=user_prompt)
+        llm_result = self.client.generate_json(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_format={"type": "json_object"},
+            response_model=CommandGenerationPayload,
+        )
         raw = str(llm_result.get("raw_output") or "")
 
         if not llm_result.get("success") or not raw.strip():

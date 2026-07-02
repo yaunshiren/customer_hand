@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from app.llm.client import LLMClient
 
 from .prompt import IntentPromptBuilder
@@ -18,6 +20,27 @@ class RuleIntentPattern:
     keywords: tuple[str, ...]
     confidence: float
     reason: str
+
+
+class IntentClassificationCandidatePayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    intent_id: str | None = None
+    id: str | None = None
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    score: float | None = Field(default=None, ge=0.0, le=1.0)
+    reason: str | None = None
+
+
+class IntentClassificationPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    intent_id: str | None = None
+    id: str | None = None
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    score: float | None = Field(default=None, ge=0.0, le=1.0)
+    candidates: list[IntentClassificationCandidatePayload] = Field(default_factory=list)
+    reason: str | None = None
 
 
 DEFAULT_RULE_PATTERNS: tuple[RuleIntentPattern, ...] = (
@@ -177,6 +200,8 @@ class IntentClassifier:
             user_prompt=user_prompt,
             temperature=0,
             top_p=1,
+            response_format={"type": "json_object"},
+            response_model=IntentClassificationPayload,
         )
 
         if not llm_result.get("success") or not str(llm_result.get("raw_output") or "").strip():
@@ -185,7 +210,9 @@ class IntentClassifier:
             )
 
         try:
-            payload = _extract_json_object(str(llm_result.get("raw_output") or ""))
+            payload = llm_result.get("json_output")
+            if not isinstance(payload, dict):
+                payload = _extract_json_object(str(llm_result.get("raw_output") or ""))
             return self._build_llm_result(payload, rule_candidates=rule_candidates)
         except (TypeError, ValueError, json.JSONDecodeError):
             return self._apply_clarification(

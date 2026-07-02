@@ -7,6 +7,8 @@ from concurrent.futures import Executor, ThreadPoolExecutor
 from threading import Lock
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from app.llm.client import LLMClient
 from app.memory.store import ConversationMemoryStore
 from app.persistence.models import ConversationMessage
@@ -18,6 +20,12 @@ _DEFAULT_SUMMARY_EXECUTOR = ThreadPoolExecutor(
     max_workers=2,
     thread_name_prefix="memory-summary",
 )
+
+
+class MemorySummaryPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    summary: str = Field(default="")
 
 
 class MemorySummaryService:
@@ -173,12 +181,16 @@ class MemorySummaryService:
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.0,
+            response_format={"type": "json_object"},
+            response_model=MemorySummaryPayload,
         )
         if not result.get("success"):
             logger.info("memory.summary.llm_failed error=%s", result.get("error"))
             return ""
 
-        payload = _extract_json_object(str(result.get("raw_output") or ""))
+        payload = result.get("json_output")
+        if not isinstance(payload, dict):
+            payload = _extract_json_object(str(result.get("raw_output") or ""))
         summary = str(payload.get("summary") or "").strip()
         if not summary:
             return ""

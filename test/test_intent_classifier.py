@@ -24,6 +24,7 @@ class FakeLLMClient:
         *,
         temperature: float | None = None,
         top_p: float | None = None,
+        **kwargs: object,
     ) -> dict[str, object]:
         self.calls.append(
             {
@@ -31,6 +32,7 @@ class FakeLLMClient:
                 "user_prompt": user_prompt,
                 "temperature": temperature,
                 "top_p": top_p,
+                **kwargs,
             }
         )
         return {
