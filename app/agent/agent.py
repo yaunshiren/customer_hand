@@ -44,15 +44,52 @@ class Agent:
         self.memory_service = ConversationMemoryService() if settings.trace_db_url else None
 
     def handle_message(
-            self,
-            message: str,
-            sender_id: str,
-            conversation_id: str | None = None,
-        ) -> list[dict[str, Any]]:
+        self,
+        message: str,
+        sender_id: str,
+        conversation_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         text = message.strip()
+        return self._handle_normalized_message(
+            text=text,
+            sender_id=sender_id,
+            conversation_id=conversation_id or sender_id,
+            task=None,
+        )
+
+    def handle_task(self, task: EntryTask) -> list[dict[str, Any]]:
+        if task.metadata.get("security_degraded") is True:
+            return [
+                {
+                    "recipient_id": task.sender_id,
+                    "text": "Request needs manual review before any tool action can run. Please rephrase the request.",
+                    "metadata": {
+                        "route": "clarify",
+                        "entry_security_degraded": True,
+                        "security_flags": task.security_flags.model_dump(mode="json", exclude_none=True),
+                    },
+                }
+            ]
+
+        return self._handle_normalized_message(
+            text=task.normalized_text,
+            sender_id=task.sender_id,
+            conversation_id=task.conversation_id,
+            task=task,
+        )
+
+    def _handle_normalized_message(
+        self,
+        *,
+        text: str,
+        sender_id: str,
+        conversation_id: str,
+        task: EntryTask | None,
+    ) -> list[dict[str, Any]]:
         logger.info("agent.start sender_id=%s message_len=%d", sender_id, len(text))
         try:
             tracker = self.tracker_store.get_or_create(sender_id)
+            entry_metadata = _entry_metadata(task)
             state = {
                 "sender_id": sender_id,
                 "message": text,
@@ -69,9 +106,10 @@ class Agent:
                 "intent_classifier": self.intent_classifier,
                 "intent_route_policy": self.intent_route_policy,
                 "business_classifier": self.business_classifier,
-                "metadata": {},
-                "conversation_id": conversation_id or sender_id,
+                "metadata": entry_metadata,
+                "conversation_id": conversation_id,
                 "memory_service": self.memory_service,
+                **_entry_state(task),
             }
             result_state = run_agent_graph(state)
             responses = result_state.get("responses") or []
@@ -79,9 +117,34 @@ class Agent:
         finally:
             logger.info("agent.done sender_id=%s", sender_id)
 
-    def handle_task(self, task: EntryTask) -> list[dict[str, Any]]:
-        return self.handle_message(
-            message=task.normalized_text,
-            sender_id=task.sender_id,
-            conversation_id=task.conversation_id,
-        )
+
+def _entry_metadata(task: EntryTask | None) -> dict[str, Any]:
+    if task is None:
+        return {}
+    return {
+        "entry_trace_id": task.trace_id,
+        "entry_request_id": task.request_id,
+        "entry_source": task.source,
+        "entry_scenario": task.scenario,
+        "entry_capability": task.capability,
+        "tenant_id": task.principal.tenant_id,
+        "roles": list(task.principal.roles or []),
+        "security_flags": task.security_flags.model_dump(mode="json", exclude_none=True),
+        "text_hash": task.security_flags.text_hash,
+    }
+
+
+def _entry_state(task: EntryTask | None) -> dict[str, Any]:
+    if task is None:
+        return {}
+    return {
+        "entry_task": task,
+        "principal": task.principal.model_dump(mode="json"),
+        "tenant_id": task.principal.tenant_id,
+        "roles": list(task.principal.roles or []),
+        "data_scope": dict(task.principal.data_scope or {}),
+        "security_flags": task.security_flags.model_dump(mode="json", exclude_none=True),
+        "source": task.source,
+        "scenario": task.scenario,
+        "capability": task.capability,
+    }

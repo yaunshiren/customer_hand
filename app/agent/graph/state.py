@@ -13,6 +13,15 @@ class AgentState(TypedDict, total=False):
     # Request inputs.
     sender_id: str
     message: str
+    entry_task: Any
+    principal: dict[str, Any]
+    tenant_id: str
+    roles: list[str]
+    data_scope: dict[str, Any]
+    security_flags: dict[str, Any]
+    source: str
+    scenario: str
+    capability: str
 
     # Persistent conversation context.
     tracker: Any

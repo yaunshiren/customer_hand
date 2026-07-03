@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.agent.graph.state import AgentState
 from app.agent.graph.node_metadata import (
     _business_response_metadata,
+    _entry_response_metadata,
     _intent_response_metadata,
     _memory_response_metadata,
     _merge_response_metadata,
@@ -38,6 +39,7 @@ def generate_response(state: AgentState) -> AgentState:
     common_metadata.update(_business_response_metadata(state.get("business_classification")))
     common_metadata.update(_tool_response_metadata(tool_result))
     common_metadata.update(_tool_safety_response_metadata(state.get("tool_safety")))
+    common_metadata.update(_entry_response_metadata(state))
 
     if reply_text and route_name in {"chitchat", "clarify"}:
         responses = [

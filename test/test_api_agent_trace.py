@@ -13,7 +13,17 @@ from app.persistence.models import AgentTrace  # noqa: E402
 from main import app  # noqa: E402
 
 
+AUTH_HEADER = {"Authorization": "Bearer dev:trace_user:tenant_demo:user"}
+
+
 class FakeAgent:
+    def handle_task(self, task) -> list[dict[str, object]]:
+        return self.handle_message(
+            message=task.normalized_text,
+            sender_id=task.sender_id,
+            conversation_id=task.conversation_id,
+        )
+
     def handle_message(
         self,
         message: str,
@@ -55,6 +65,13 @@ class FakeAgent:
 
 
 class FailingAgent:
+    def handle_task(self, task) -> list[dict[str, object]]:
+        return self.handle_message(
+            message=task.normalized_text,
+            sender_id=task.sender_id,
+            conversation_id=task.conversation_id,
+        )
+
     def handle_message(
         self,
         message: str,
@@ -103,6 +120,10 @@ def _trace_id() -> str:
     return f"test_{uuid.uuid4().hex}"
 
 
+def _headers(trace_id: str) -> dict[str, str]:
+    return {**AUTH_HEADER, "X-Trace-Id": trace_id}
+
+
 def _delete_agent_trace(trace_id: str) -> None:
     with trace_db_session() as session:
         row = session.get(AgentTrace, trace_id)
@@ -140,7 +161,7 @@ def test_api_messages_calls_trace_recorder_success_without_db() -> None:
 
     response = client.post(
         "/api/messages",
-        headers={"X-Trace-Id": trace_id},
+        headers=_headers(trace_id),
         json={"sender_id": "trace_user", "message": "我想问售后政策"},
     )
 
@@ -176,7 +197,7 @@ def test_api_messages_calls_trace_recorder_on_agent_error_without_db() -> None:
 
     response = client.post(
         "/api/messages",
-        headers={"X-Trace-Id": trace_id},
+        headers=_headers(trace_id),
         json={"sender_id": "trace_error_user", "message": "触发异常"},
     )
 
@@ -196,7 +217,7 @@ def test_api_messages_persists_agent_trace(trace_db_available) -> None:
     try:
         response = client.post(
             "/api/messages",
-            headers={"X-Trace-Id": trace_id},
+            headers=_headers(trace_id),
             json={"sender_id": "trace_user", "message": "我想问售后政策"},
         )
 
@@ -206,7 +227,8 @@ def test_api_messages_persists_agent_trace(trace_db_available) -> None:
         assert row.id == trace_id
         assert row.sender_id == "trace_user"
         assert row.conversation_id == "trace_user"
-        assert row.user_text == "我想问售后政策"
+        assert row.user_text.startswith("<text_hash:")
+        assert "我想问售后政策" not in row.user_text
         assert row.rewritten_query == "售后政策"
         assert row.memory_snapshot["query_rewrite"]["original_query"] == "我想问售后政策"
         assert row.memory_snapshot["query_rewrite"]["rewritten_query"] == "售后政策"
@@ -230,7 +252,7 @@ def test_api_messages_persists_error_trace(trace_db_available) -> None:
     try:
         response = client.post(
             "/api/messages",
-            headers={"X-Trace-Id": trace_id},
+            headers=_headers(trace_id),
             json={"sender_id": "trace_error_user", "message": "触发异常"},
         )
 

@@ -25,8 +25,14 @@ from app.rag.citation import CitationBuilder
 from app.rag.reindex import get_index_status, rebuild_index
 from app.rag.retriever import KnowledgeBaseRetriever, normalize_rag_backend
 from app.settings import settings
-from app.entry.normalizer import normalize_message_request
 from app.entry.models import EntryTask
+from app.entry.guard import (
+    guard_eval_rag,
+    guard_knowledge_reindex,
+    guard_tracker_reset,
+    prepare_message_task,
+)
+from app.entry.idempotency import run_with_idempotency
 
 logger = logging.getLogger(__name__)
 
@@ -153,66 +159,56 @@ def create_app() -> FastAPI:
     async def send_message(req: MessageRequest, request: Request) -> list[MessageResponse]:
         trace_id = trace_id_from_request(request)
         started_at = time.perf_counter()
-        task = normalize_message_request(req, request)
+        task = prepare_message_task(req, request)
         conversation_id = task.conversation_id
         trace_recorder: AgentTraceRecorder = request.app.state.trace_recorder
         error_recorded = False
 
         with trace_scope(trace_id):
-            text = req.message.strip()
             trace_text = _trace_user_text(task)
-            if not text:
-                trace_recorder.record_message_error(
-                    trace_id=trace_id,
-                    sender_id=req.sender_id,
-                    conversation_id=conversation_id,
-                    user_text=req.message or "<empty_message>",
-                    # user_text=req.message or "<empty_message>",
-                    # user_text=trace_text,
-                    error="message must not be empty",
-                    latency_ms=_elapsed_ms(started_at),
-                    route="bad_request",
-                )
-                error_recorded = True
-                raise BadRequestError("message must not be empty")
 
             logger.info(
-                "api.messages sender_id=%s message_len=%d",
-                req.sender_id,
-                len(text),
+                "api.messages sender_id=%s source=%s scenario=%s capability=%s message_len=%d",
+                task.sender_id,
+                task.source,
+                task.scenario,
+                task.capability,
+                len(task.normalized_text),
             )
             trace_recorder.record_message_start(
                 trace_id=trace_id,
-                sender_id=req.sender_id,
+                sender_id=task.sender_id,
                 conversation_id=conversation_id,
-                # user_text=text,
                 user_text=trace_text,
             )
 
             try:
-                def handle() -> list[dict[str, object]]:
-                    return request.app.state.agent.handle_task(task)
+                async def execute_request() -> list[MessageResponse]:
+                    def handle() -> list[dict[str, object]]:
+                        return request.app.state.agent.handle_task(task)
 
-                raw_responses = await run_with_trace(request, handle)
-                now = datetime.now(timezone.utc).isoformat()
+                    raw_responses = await run_with_trace(request, handle)
+                    now = datetime.now(timezone.utc).isoformat()
 
-                responses: list[MessageResponse] = []
-                for item in raw_responses:
-                    responses.append(
-                        MessageResponse(
-                            recipient_id=str(item.get("recipient_id", req.sender_id)),
-                            text=item.get("text"),
-                            timestamp=str(item.get("timestamp") or now),
-                            metadata=dict(item.get("metadata") or {}),
+                    responses: list[MessageResponse] = []
+                    for item in raw_responses:
+                        responses.append(
+                            MessageResponse(
+                                recipient_id=str(item.get("recipient_id", task.sender_id)),
+                                text=item.get("text"),
+                                timestamp=str(item.get("timestamp") or now),
+                                metadata=dict(item.get("metadata") or {}),
+                            )
                         )
-                    )
+                    return responses
+
+                responses = await run_with_idempotency(task, request, execute_request)
 
                 metadata = _response_metadata(responses)
                 trace_recorder.record_message_success(
                     trace_id=trace_id,
-                    sender_id=req.sender_id,
+                    sender_id=task.sender_id,
                     conversation_id=conversation_id,
-                    # user_text=text,
                     user_text=trace_text,
                     rewritten_query=metadata.get("rewritten_query") or None,
                     memory_snapshot=_memory_snapshot(metadata),
@@ -223,15 +219,14 @@ def create_app() -> FastAPI:
                     latency_ms=_elapsed_ms(started_at),
                 )
 
-                logger.info("api.messages.done sender_id=%s replies=%d", req.sender_id, len(responses))
+                logger.info("api.messages.done sender_id=%s replies=%d", task.sender_id, len(responses))
                 return responses
             except Exception as exc:
                 if not error_recorded:
                     trace_recorder.record_message_error(
                         trace_id=trace_id,
-                        sender_id=req.sender_id,
+                        sender_id=task.sender_id,
                         conversation_id=conversation_id,
-                        # user_text=text,
                         user_text=trace_text,
                         error=exc,
                         latency_ms=_elapsed_ms(started_at),
@@ -240,6 +235,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/eval/rag")
     async def eval_rag(request: Request, question: str, top_k: int = 5):
+        guard_eval_rag(request)
         with trace_scope(trace_id_from_request(request)):
             text = question.strip()
             if not text:
@@ -284,6 +280,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/tracker/{sender_id}/reset")
     async def reset_tracker(request: Request, sender_id: str):
+        guard_tracker_reset(request, sender_id)
         with trace_scope(trace_id_from_request(request)):
             deleted = store.delete(sender_id)
             return {
@@ -305,6 +302,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/knowledge/reindex")
     async def knowledge_reindex(request: Request):
+        guard_knowledge_reindex(request)
         with trace_scope(trace_id_from_request(request)):
             if normalize_rag_backend(settings.rag_backend) != "chroma":
                 raise BadRequestError(

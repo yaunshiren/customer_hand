@@ -16,6 +16,7 @@ os.environ["LLM_ENABLED"] = "false"
 from main import app  # noqa: E402
 
 client = TestClient(app)
+AUTH_ADMIN = {"Authorization": "Bearer dev:admin_001:tenant_demo:admin"}
 
 
 def test_knowledge_status_endpoint() -> None:
@@ -30,5 +31,5 @@ def test_knowledge_reindex_rejects_keyword_backend() -> None:
     from app.settings import settings  # noqa: E402
 
     with patch.object(settings, "rag_backend", "keyword"):
-        response = client.post("/api/knowledge/reindex")
+        response = client.post("/api/knowledge/reindex", headers=AUTH_ADMIN)
     assert response.status_code == 400

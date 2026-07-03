@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -14,9 +16,51 @@ if str(PROJECT_ROOT) not in sys.path:
 os.environ["LLM_ENABLED"] = "false"
 
 from main import app  # noqa: E402
+from app.entry.idempotency import reset_idempotency_store  # noqa: E402
+from app.entry.rate_limit import reset_rate_limiter  # noqa: E402
 
 
 client = TestClient(app)
+AUTH_RESET = {"Authorization": "Bearer dev:test_user_day4_reset:tenant_demo:user"}
+
+
+class FakeAgent:
+    def __init__(self, tracker_store: Any) -> None:
+        self.tracker_store = tracker_store
+
+    def handle_task(self, task) -> list[dict[str, object]]:
+        tracker = self.tracker_store.get_or_create(task.sender_id)
+        tracker.update_with_user_message(task.normalized_text)
+        tracker.add_bot_message("ok")
+        return [{"recipient_id": task.sender_id, "text": "ok", "metadata": {"route": "test"}}]
+
+
+class NoopTraceRecorder:
+    def record_message_start(self, **kwargs: Any) -> None:
+        return None
+
+    def record_message_success(self, **kwargs: Any) -> None:
+        return None
+
+    def record_message_error(self, **kwargs: Any) -> None:
+        return None
+
+
+@pytest.fixture(autouse=True)
+def fake_runtime():
+    original_agent = app.state.agent
+    original_trace_recorder = app.state.trace_recorder
+    reset_rate_limiter()
+    reset_idempotency_store()
+    app.state.agent = FakeAgent(original_agent.tracker_store)
+    app.state.trace_recorder = NoopTraceRecorder()
+    try:
+        yield
+    finally:
+        app.state.agent = original_agent
+        app.state.trace_recorder = original_trace_recorder
+        reset_rate_limiter()
+        reset_idempotency_store()
 
 
 def test_health_ok():
@@ -58,6 +102,7 @@ def test_reset_tracker():
 
     create_response = client.post(
         "/api/messages",
+        headers=AUTH_RESET,
         json={
             "sender_id": sender_id,
             "message": "查物流",
@@ -72,7 +117,7 @@ def test_reset_tracker():
     assert tracker_data["exists"] is True
     assert "tracker" in tracker_data
 
-    reset_response = client.post(f"/api/tracker/{sender_id}/reset")
+    reset_response = client.post(f"/api/tracker/{sender_id}/reset", headers=AUTH_RESET)
     assert reset_response.status_code == 200
     reset_data = reset_response.json()
     assert reset_data["sender_id"] == sender_id
