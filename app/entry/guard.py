@@ -1,0 +1,1 @@
+# Phase 1 placeholder. Later compose auth, security, rate limit, and idempotency.

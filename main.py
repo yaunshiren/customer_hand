@@ -25,6 +25,7 @@ from app.rag.citation import CitationBuilder
 from app.rag.reindex import get_index_status, rebuild_index
 from app.rag.retriever import KnowledgeBaseRetriever, normalize_rag_backend
 from app.settings import settings
+from app.entry.normalizer import normalize_message_request
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,8 @@ def create_app() -> FastAPI:
     async def send_message(req: MessageRequest, request: Request) -> list[MessageResponse]:
         trace_id = trace_id_from_request(request)
         started_at = time.perf_counter()
-        conversation_id = _conversation_id(req.sender_id)
+        task = normalize_message_request(req, request)
+        conversation_id = task.conversation_id
         trace_recorder: AgentTraceRecorder = request.app.state.trace_recorder
         error_recorded = False
 
@@ -176,11 +178,7 @@ def create_app() -> FastAPI:
 
             try:
                 def handle() -> list[dict[str, object]]:
-                    return request.app.state.agent.handle_message(
-                        message=req.message,
-                        sender_id=req.sender_id,
-                        conversation_id=conversation_id,
-                    )
+                    return request.app.state.agent.handle_task(task)
 
                 raw_responses = await run_with_trace(request, handle)
                 now = datetime.now(timezone.utc).isoformat()

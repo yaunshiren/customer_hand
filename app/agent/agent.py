@@ -4,15 +4,16 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from app.actions.builtin import register_builtin_actions
 from app.agent.graph.builder import run_agent_graph
 from app.agent.tool_safety import AgentToolSafetyPolicy
+from app.actions.builtin import register_builtin_actions
 from app.core.tracker_store import InMemoryTrackerStore
 from app.dialogue.llm_generator import LLMCommandGenerator
+from app.entry.models import EntryTask
 from app.memory import MemoryEntityExtractor, QueryRewriter
+from app.memory import ConversationMemoryService
 from app.rag.answerer import KnowledgeAnswerer
 from app.tickets import TicketService
-from app.memory import ConversationMemoryService
 from app.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -77,3 +78,10 @@ class Agent:
             return list(responses)
         finally:
             logger.info("agent.done sender_id=%s", sender_id)
+
+    def handle_task(self, task: EntryTask) -> list[dict[str, Any]]:
+        return self.handle_message(
+            message=task.normalized_text,
+            sender_id=task.sender_id,
+            conversation_id=task.conversation_id,
+        )
