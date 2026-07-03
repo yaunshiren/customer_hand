@@ -32,6 +32,7 @@ class SecurityFlags(BaseModel):
     prompt_injection_risk: bool = False
     malicious_input_risk: bool = False
     redacted_text: str | None = None
+    text_hash: str | None = None
     reasons: list[str] = Field(default_factory=list)
 
 

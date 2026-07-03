@@ -26,6 +26,7 @@ from app.rag.reindex import get_index_status, rebuild_index
 from app.rag.retriever import KnowledgeBaseRetriever, normalize_rag_backend
 from app.settings import settings
 from app.entry.normalizer import normalize_message_request
+from app.entry.models import EntryTask
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,14 @@ SERVICE_NAME = settings.app_name
 VERSION = settings.app_version
 BASE_DIR = Path(__file__).resolve().parent
 INSPECT_TEMPLATE = BASE_DIR / "app" / "api" / "templates" / "inspect.html"
+
+
+def _trace_user_text(task: EntryTask) -> str:
+    if task.security_flags.redacted_text:
+        return task.security_flags.redacted_text
+    if task.security_flags.text_hash:
+        return f"<text_hash:{task.security_flags.text_hash}>"
+    return "<empty_text>"
 
 
 def _elapsed_ms(start: float) -> int:
@@ -151,12 +160,15 @@ def create_app() -> FastAPI:
 
         with trace_scope(trace_id):
             text = req.message.strip()
+            trace_text = _trace_user_text(task)
             if not text:
                 trace_recorder.record_message_error(
                     trace_id=trace_id,
                     sender_id=req.sender_id,
                     conversation_id=conversation_id,
                     user_text=req.message or "<empty_message>",
+                    # user_text=req.message or "<empty_message>",
+                    # user_text=trace_text,
                     error="message must not be empty",
                     latency_ms=_elapsed_ms(started_at),
                     route="bad_request",
@@ -173,7 +185,8 @@ def create_app() -> FastAPI:
                 trace_id=trace_id,
                 sender_id=req.sender_id,
                 conversation_id=conversation_id,
-                user_text=text,
+                # user_text=text,
+                user_text=trace_text,
             )
 
             try:
@@ -199,7 +212,8 @@ def create_app() -> FastAPI:
                     trace_id=trace_id,
                     sender_id=req.sender_id,
                     conversation_id=conversation_id,
-                    user_text=text,
+                    # user_text=text,
+                    user_text=trace_text,
                     rewritten_query=metadata.get("rewritten_query") or None,
                     memory_snapshot=_memory_snapshot(metadata),
                     intent_id=_first_intent_id(metadata),
@@ -217,7 +231,8 @@ def create_app() -> FastAPI:
                         trace_id=trace_id,
                         sender_id=req.sender_id,
                         conversation_id=conversation_id,
-                        user_text=text,
+                        # user_text=text,
+                        user_text=trace_text,
                         error=exc,
                         latency_ms=_elapsed_ms(started_at),
                     )

@@ -41,3 +41,28 @@ def test_normalize_message_request_builds_entry_task() -> None:
     assert data["normalized_text"] == "hello"
     assert data["idempotency_key"] == "idem-1"
     assert data["metadata"]["channel"] == "browser"
+    assert data["capability"] == "chat"
+    assert data["metadata"]["text_hash"]
+    assert data["security_flags"]["text_hash"] == data["metadata"]["text_hash"]
+
+def test_normalizer_falls_back_invalid_source_to_api() -> None:
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def trace_header_middleware(request: Request, call_next):
+        request.state.trace_id = "trace-test"
+        return await call_next(request)
+
+    @app.post("/probe")
+    async def probe(req: MessageRequest, request: Request):
+        task = normalize_message_request(req, request)
+        return task.model_dump(mode="json")
+
+    client = TestClient(app)
+    response = client.post(
+        "/probe",
+        json={"sender_id": "u1", "message": "hello", "source": "bad_source"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["source"] == "api"

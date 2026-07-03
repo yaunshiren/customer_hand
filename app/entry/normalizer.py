@@ -9,6 +9,7 @@ from app.api.schemas import MessageRequest
 from app.core.exceptions import BadRequestError
 from app.core.trace import trace_id_from_request
 from app.entry.models import EntrySource, EntryTask, Principal
+from app.entry.security import build_security_flags
 
 
 VALID_SOURCES = {"web", "app", "api", "webhook", "scheduler"}
@@ -24,6 +25,10 @@ def normalize_message_request(
     normalized_text = raw_text.strip()
     if not normalized_text:
         raise BadRequestError("message must not be empty")
+    
+    security_flags = build_security_flags(normalized_text)
+    metadata = dict(getattr(req, "metadata", None) or {})
+    metadata.setdefault("text_hash", security_flags.text_hash)
 
     sender_id = str(req.sender_id or "").strip() or "user"
     conversation_id = str(getattr(req, "conversation_id", None) or sender_id).strip()
@@ -41,8 +46,9 @@ def normalize_message_request(
         conversation_id=conversation_id,
         raw_text=raw_text,
         normalized_text=normalized_text,
-        idempotency_key=_idempotency_key(request, getattr(req, "metadata", None)),
-        metadata=dict(getattr(req, "metadata", None) or {}),
+        idempotency_key=_idempotency_key(request, metadata),
+        security_flags=security_flags,
+        metadata=metadata,
     )
 
 
