@@ -21,3 +21,4 @@ runs/
 
 # Logs
 *.log
+*.vscode
