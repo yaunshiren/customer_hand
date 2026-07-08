@@ -1,50 +1,62 @@
 # customer_hand
 
-基于 **FastAPI** 的学习型 **LLM 智能客服** 后端：在保持仓库轻量的前提下，覆盖 **API 契约、会话追踪、YAML Flow、可注册 Action、LLM 结构化命令、关键词 RAG、统一异常与链路 trace** 等简历常见考点。
+基于 **FastAPI** 的学习型 **LLM 智能客服后端**。项目围绕电商客服场景，覆盖生产入口层、会话追踪、意图识别、YAML Flow、可注册 Action、工具调用、工单、RAG 知识问答、会话记忆、链路 trace、评测与持久化等能力。
 
-更完整的设计说明见 **`docs/`**（阶段 7 沉淀）：
+更完整的设计说明见 `docs/`：
 
 | 文档 | 内容 |
 |------|------|
 | [docs/architecture.md](docs/architecture.md) | 分层职责、请求生命周期、与开发计划映射 |
 | [docs/prompt.md](docs/prompt.md) | 命令式 Prompt 与 RAG Prompt 分工 |
-| [docs/rag.md](docs/rag.md) | 加载 / 切分 / 检索 / 生成与演进方向 |
-| [docs/interview_qna.md](docs/interview_qna.md) | 高频面试问答与简历一句话模板 |
+| [docs/rag.md](docs/rag.md) | 文档加载、切分、检索、生成与演进方向 |
+| [docs/interview_qna.md](docs/interview_qna.md) | 高频面试问答与简历表达 |
 
-总体规划见仓库内 [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)。
+总体规划见 [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)。
 
 ---
 
 ## 功能概览
 
-- **HTTP**：`GET /health`、`POST /api/messages`、`GET/POST /api/tracker/...`、Swagger `GET /docs`、调试页 `GET /inspect`
-- **编排**：`Agent` 串联 LLM 命令、RAG、规则理解、Flow 槽位与 Action
-- **LLM**（可选）：OpenAI 兼容接口（如阿里云百炼），关闭时使用规则与流程兜底
-- **RAG**：`data/knowledge` 下文档 → 切分 → **关键词索引**检索 → 可选 LLM 基于片段作答，响应中带 `matches`
-- **观测**：请求级 `X-Trace-Id`、结构化日志、LLM/RAG 埋点事件
+- **HTTP API**：健康检查、消息入口、会话查看/重置、RAG 评测、知识库状态与重建、Swagger 文档、调试页。
+- **入口治理**：请求标准化、开发 token 鉴权、角色校验、限流、幂等、安全降级、统一错误响应和 `X-Trace-Id`。
+- **Agent 编排**：基于 LangGraph 风格节点串联理解、路由、RAG、工具、工单、Flow、记忆和响应生成。
+- **LLM**：支持 OpenAI 兼容接口，例如阿里云百炼；`LLM_ENABLED=false` 时可依赖规则、Flow 与兜底逻辑做确定性演示。
+- **RAG**：支持 `keyword`、`chroma`、`hybrid` 三种后端；`.env.example` 默认使用 Chroma 向量检索。
+- **业务能力**：售后/物流流程、模拟业务工具、工单流转、意图树、会话摘要和查询改写。
+- **观测与评测**：结构化日志、trace 记录、检索记录、工具调用记录、RAG 评测接口、MySQL/SQLAlchemy/Alembic 持久化。
 
 ---
 
-## 目录结构（节选）
+## 目录结构
 
 ```text
 customer_hand/
-  main.py                 FastAPI 入口与路由
+  main.py                 FastAPI 应用入口与路由注册
   DEVELOPMENT_PLAN.md     分阶段开发计划
-  docs/                   架构 / RAG / Prompt / 面试 Q&A
+  docs/                   架构、RAG、Prompt、评测、生产入口层等文档
   app/
-    api/                  schemas、异常处理、inspect 模板
-    agent/                Agent 主流程
+    api/                  响应模型、异常处理、inspect 页面模板
+    entry/                入口鉴权、限流、幂等、标准化、安全检查
+    agent/                Agent 主流程与 graph 节点
+    intent/               意图 taxonomy、分类、策略与 Prompt
     actions/              Action 注册与内置动作
+    tools/                业务工具 schema、服务与 mock store
+    tickets/              工单模型、分类、路由、服务与存储
+    memory/               会话记忆、实体抽取、摘要、查询改写
+    rag/                  文档、切分、关键词/向量/混合检索、引用与回答
+    persistence/          trace、eval、retrieval、tool 记录与数据库模型
     core/                 Tracker、Flow 加载、日志、trace、异常
-    dialogue/             LLM 命令生成与解析、Flow 执行
-    llm/                  客户端、Prompt 构建
-    rag/                  文档、切分、索引、检索、回答
+    dialogue/             LLM 命令生成/解析与 Flow 执行
+    llm/                  OpenAI 兼容客户端与 Prompt 构建
     utils/                遥测等工具
   data/
     flows/                业务流程 YAML
-    knowledge/            RAG 知识文档（.md / .txt）
-  test/                   pytest
+    intents/              客服意图配置
+    knowledge/            RAG 知识文档与产品/政策/FAQ 资料
+  scripts/                评测、索引、演示脚本
+  test/                   pytest 用例
+  alembic/                持久化表结构迁移
+  docker-compose.yml      API + MySQL 本地容器编排
   requirements.txt
   .env.example
 ```
@@ -65,17 +77,43 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-**不要**将真实 API Key 写入代码、README 或提交到 Git。密钥放在 `.env` 或系统环境变量中。
+**不要**将真实 API Key 写入代码、README 或提交到 Git。密钥请放在 `.env` 或系统环境变量中。
 
-### 常用变量（与 `.env.example` 一致）
+如果本地环境提示缺少 `pydantic_settings`，先安装：
+
+```cmd
+pip install pydantic-settings
+```
+
+---
+
+## 常用配置
 
 | 变量 | 说明 |
 |------|------|
-| `DASHSCOPE_API_KEY` / `OPENAI_API_KEY` | 兼容 OpenAI SDK 的密钥 |
-| `DASHSCOPE_BASE_URL` | 如百炼兼容端点 |
-| `QWEN_MODEL` | 模型名，如 `qwen-plus` |
-| `LLM_ENABLED` | `true` / `false`；`false` 时不调用大模型，便于确定性开发与测试 |
-| `KNOWLEDGE_DIR` | 可选，默认 `data/knowledge` |
+| `APP_ENV` | `development` 默认允许匿名开发请求；`production` 要求鉴权 |
+| `DASHSCOPE_API_KEY` / `BAILIAN_API_KEY` / `OPENAI_API_KEY` | OpenAI 兼容接口密钥 |
+| `DASHSCOPE_BASE_URL` / `BAILIAN_BASE_URL` | OpenAI 兼容接口地址 |
+| `QWEN_MODEL` / `BAILIAN_MODEL` | 对话模型名，例如 `qwen-plus` |
+| `LLM_ENABLED` | 是否启用真实 LLM 调用 |
+| `LLM_TIMEOUT` / `LLM_MAX_RETRIES` | LLM 与 embedding 请求超时和重试 |
+| `RAG_BACKEND` | `keyword`、`chroma` 或 `hybrid`；无 `.env` 时代码默认 `keyword` |
+| `KNOWLEDGE_DIR` | 知识库目录，默认 `data/knowledge` |
+| `CHROMA_PERSIST_DIR` | Chroma 向量库目录，默认 `data/chroma` |
+| `EMBEDDING_ENABLED` | 是否允许调用 embedding；Chroma/hybrid 查询和重建索引需要它 |
+| `EMBEDDING_MODEL` / `EMBEDDING_DIMENSIONS` | 远程向量模型与维度 |
+| `TRACE_DB_URL` | 本地 Python 进程连接 MySQL 的 SQLAlchemy URL |
+| `TRACE_DB_DOCKER_URL` | Docker Compose 中 API 容器连接 MySQL 的 URL |
+| `MEMORY_*` | 会话记忆最近轮次、摘要开关与摘要阈值 |
+
+完全离线演示时，建议设置：
+
+```env
+LLM_ENABLED=false
+RAG_BACKEND=keyword
+```
+
+如果使用 `.env.example` 默认的 `RAG_BACKEND=chroma`，知识检索会依赖 Chroma 索引；查询或重建索引可能触发 embedding 调用。
 
 ---
 
@@ -87,35 +125,31 @@ copy .env.example .env
 uvicorn main:app --reload
 ```
 
-浏览器打开：`http://127.0.0.1:8000/docs`
-
 模块方式：
 
 ```cmd
 python main.py
 ```
 
-### Docker 启动
+启动后访问：
 
-先复制环境变量文件：
+- Swagger：`http://127.0.0.1:8000/docs`
+- 调试页：`http://127.0.0.1:8000/inspect`
+- 健康检查：`http://127.0.0.1:8000/health`
+
+### Docker 启动
 
 ```cmd
 copy .env.example .env
-```
-
-然后启动容器：
-
-```cmd
 docker compose up --build
 ```
 
-启动后访问：`http://127.0.0.1:8000/docs`
+当前 `docker-compose.yml` 会启动两个服务：
 
-说明：
+- `api`：FastAPI 服务，监听宿主机 `8000`。
+- `mysql`：trace/eval/tool/retrieval 等持久化数据使用的 MySQL 8.0，宿主机端口默认 `3307`。
 
-- `docker-compose.yml` 只启动一个 `api` 服务，适合本地演示与面试展示
-- `./data` 会挂载到容器内的 `/app/data`，用于持久化知识库索引和业务数据
-- 配置仍然通过 `.env` 注入，避免把真实密钥写进镜像
+`./data` 会挂载到容器内 `/app/data`，用于知识库、索引和业务数据。API 容器会通过 `TRACE_DB_DOCKER_URL` 连接 compose 内的 MySQL。
 
 ---
 
@@ -127,7 +161,9 @@ docker compose up --build
 curl http://127.0.0.1:8000/health
 ```
 
-### 发送消息（售后意图示例）
+### 发送消息
+
+开发环境默认允许匿名消息请求：
 
 ```cmd
 curl -X POST http://127.0.0.1:8000/api/messages ^
@@ -135,16 +171,87 @@ curl -X POST http://127.0.0.1:8000/api/messages ^
   -d "{\"sender_id\":\"user_001\",\"message\":\"我要退货\"}"
 ```
 
-返回为 **列表**，元素含 `recipient_id`、`text`、`timestamp`、`metadata`（可能含 `source`、`matches` 等）。
+也可以使用开发 token：
+
+```cmd
+curl -X POST http://127.0.0.1:8000/api/messages ^
+  -H "Content-Type: application/json" ^
+  -H "Authorization: Bearer dev:user_001:tenant_demo:user" ^
+  -d "{\"sender_id\":\"user_001\",\"message\":\"查物流\",\"conversation_id\":\"conv_001\"}"
+```
+
+返回为列表，元素包含 `recipient_id`、`text`、`timestamp`、`metadata`。`metadata` 中可能包含路由、意图、RAG matches、工具 trace、记忆快照等信息。
 
 ### 查看 / 重置会话
 
+查看会话：
+
 ```cmd
 curl http://127.0.0.1:8000/api/tracker/user_001/full
-curl -X POST http://127.0.0.1:8000/api/tracker/user_001/reset
 ```
 
-重置后若会话已删除，再次 `GET .../full` 可能返回 **404**，响应体中带 `trace_id`（与全局异常处理一致）。
+重置会话需要管理员或本人身份：
+
+```cmd
+curl -X POST http://127.0.0.1:8000/api/tracker/user_001/reset ^
+  -H "Authorization: Bearer dev:user_001:tenant_demo:user"
+```
+
+重置后再次查询可能返回 `404`，错误响应会带 `trace_id`。
+
+### RAG 评测
+
+`/api/eval/rag` 需要 `evaluator` 或 `admin` 角色：
+
+```cmd
+curl "http://127.0.0.1:8000/api/eval/rag?question=退货规则&top_k=5" ^
+  -H "Authorization: Bearer dev:evaluator_001:tenant_demo:evaluator"
+```
+
+### 知识库状态与重建
+
+查看知识库状态：
+
+```cmd
+curl http://127.0.0.1:8000/api/knowledge/status
+```
+
+重建 Chroma 向量索引需要 `RAG_BACKEND=chroma`，并且请求者需要 `admin` 角色：
+
+```cmd
+curl -X POST http://127.0.0.1:8000/api/knowledge/reindex ^
+  -H "Authorization: Bearer dev:admin_001:tenant_demo:admin"
+```
+
+---
+
+## 鉴权与权限
+
+开发 token 格式：
+
+```text
+Bearer dev:{user_id}:{tenant_id}:{role1,role2}
+```
+
+常见角色：
+
+- `user`：普通用户，可发送消息，可重置自己的 tracker。
+- `evaluator`：可访问 RAG 评测接口。
+- `admin`：可执行管理员操作，例如知识库重建，也可重置任意 tracker。
+
+`APP_ENV=production` 时，请求缺少 `Authorization` 会返回未授权错误。
+
+---
+
+## RAG 后端
+
+| 后端 | 配置 | 说明 |
+|------|------|------|
+| 关键词检索 | `RAG_BACKEND=keyword` | 加载 `data/knowledge` 后建立内存关键词索引，适合离线演示 |
+| 向量检索 | `RAG_BACKEND=chroma` | 使用 Chroma 持久化索引，查询前需有索引数据 |
+| 混合检索 | `RAG_BACKEND=hybrid` | 组合关键词/BM25/向量通道并融合排序 |
+
+使用向量检索时，`EMBEDDING_MODEL`、`EMBEDDING_DIMENSIONS` 与建索引时必须保持一致。
 
 ---
 
@@ -164,25 +271,35 @@ pytest test/test_api_basic.py -v
 
 ## 演示问题建议
 
-- 流程类：`我要退货`、`查物流`（配合后续提供订单号）
-- 知识类（需 **`LLM_ENABLED=true`** 且模型输出 `knowledge_answer` 命令）：`退货规则`、`退款多久到账`
-- 寒暄：`你好`
+- 流程类：`我要退货`、`查物流`，可继续补充订单号。
+- 知识类：`退货规则`、`退款多久到账`、`这款耳机支持降噪吗`。
+- 工单类：`我要投诉商品质量问题`、`帮我创建售后工单`。
+- 寒暄：`你好`。
 
 ---
 
 ## 常见问题
 
-**conda / Python 版本不对**  
-先 `conda activate customer`，保证 Python 3.10+。
-
-**端口占用**  
+**端口占用**
 
 ```cmd
 uvicorn main:app --reload --port 8001
 ```
 
-**依赖报错**  
-执行 `pip install -r requirements.txt`；若缺少 `pydantic-settings`，可 `pip install pydantic-settings`（部分环境需显式安装）。
+**Docker 卡在等待 MySQL**
 
-**LLM 不想联网**  
-设置 `LLM_ENABLED=false`，依赖规则与 Flow 仍可演示主链路。
+检查 `.env` 中 `TRACE_MYSQL_ROOT_PASSWORD`、`TRACE_MYSQL_USER`、`TRACE_MYSQL_PASSWORD` 是否已设置，MySQL 首次启动会初始化数据卷，可能需要稍等。
+
+**不想发生任何 LLM/embedding 联网调用**
+
+设置：
+
+```env
+LLM_ENABLED=false
+RAG_BACKEND=keyword
+EMBEDDING_ENABLED=false
+```
+
+**Chroma 查询没有结果**
+
+确认 `RAG_BACKEND=chroma`，再用管理员 token 调用 `POST /api/knowledge/reindex` 重建索引；同时确认 embedding 密钥和维度配置有效。
