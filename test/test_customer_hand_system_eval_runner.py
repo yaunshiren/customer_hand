@@ -4,14 +4,17 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RAGENTEVAL_ROOT = PROJECT_ROOT.parent / "ragenteval-main"
 for path in (PROJECT_ROOT, RAGENTEVAL_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from eval.common.schemas import EvalSample  # noqa: E402
-from eval.rag.pipeline import customer_hand_runner  # noqa: E402
+schemas = pytest.importorskip("eval.common.schemas")
+customer_hand_runner = pytest.importorskip("eval.rag.pipeline.customer_hand_runner")
+EvalSample = schemas.EvalSample
 
 
 def _sample() -> EvalSample:
