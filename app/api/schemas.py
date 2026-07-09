@@ -8,6 +8,10 @@ from pydantic import BaseModel, Field
 class MessageRequest(BaseModel):
     sender_id: str = Field(default="user", min_length=1)
     message: str = Field(min_length=1)
+    conversation_id: str | None = None
+    source: str = "api"
+    scenario: str = "chat"
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class MessageResponse(BaseModel):
@@ -24,4 +28,8 @@ class TrackerResponse(BaseModel):
 
 
 class ErrorResponse(BaseModel):
+    error_code: str
+    message: str
     detail: str
+    trace_id: str
+    details: dict[str, Any] = Field(default_factory=dict)

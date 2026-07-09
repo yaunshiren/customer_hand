@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,8 +21,11 @@ class Settings(BaseSettings):
 
     app_name: str = Field(default="customer_hand")
     app_version: str = Field(default="0.1.0")
+    app_env: str = Field(default="development")
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=8000)
+    api_key_principals: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    auth_allow_dev_tokens: bool = Field(default=True)
     llm_enabled: bool = Field(default=False)
     flow_dir: Path = Field(default=DEFAULT_FLOW_DIR)
     knowledge_dir: Path = Field(default=DEFAULT_KNOWLEDGE_DIR)
@@ -38,6 +42,11 @@ class Settings(BaseSettings):
     trace_db_pool_size: int = Field(default=5)
     trace_db_max_overflow: int = Field(default=10)
     trace_db_connect_timeout: int = Field(default=2)
+    ticket_store_backend: Literal["mysql", "memory"] = Field(default="mysql")
+    idempotency_backend: Literal["memory", "redis"] = Field(default="memory")
+    idempotency_ttl_seconds: int = Field(default=86400, ge=1, le=2592000)
+    idempotency_key_prefix: str = Field(default="customer_hand:idempotency:v1", min_length=1)
+    redis_url: str = Field(default="redis://127.0.0.1:6379/0", min_length=1)
     local_embedding_query_instruction: str = Field(
         default="为这个句子生成表示以用于检索相关文章："
     )

@@ -92,6 +92,22 @@ def _tool_safety_response_metadata(tool_safety: Any) -> dict[str, Any]:
     }
 
 
+def _entry_response_metadata(state: AgentState) -> dict[str, Any]:
+    if "entry_task" not in state:
+        return {}
+
+    security_flags = state.get("security_flags")
+    return {
+        "entry_source": state.get("source"),
+        "entry_scenario": state.get("scenario"),
+        "entry_capability": state.get("capability"),
+        "tenant_id": state.get("tenant_id"),
+        "roles": state.get("roles") or [],
+        "security_flags": security_flags if isinstance(security_flags, dict) else {},
+        "text_hash": (security_flags or {}).get("text_hash") if isinstance(security_flags, dict) else None,
+    }
+
+
 def _rag_response_metadata(
     *,
     route_name: str,

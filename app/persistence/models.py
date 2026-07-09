@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, Float, Index, Integer, String, text
+from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, String, text
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -149,6 +149,66 @@ class ConversationSummary(Base):
     conversation_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     last_message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     content: Mapped[str] = mapped_column(mysql.LONGTEXT(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=3),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP(3)"),
+    )
+
+
+class TicketRecord(Base):
+    __tablename__ = "ticket"
+    __table_args__ = (
+        Index("ux_ticket_ticket_id", "ticket_id", unique=True),
+        Index("ux_ticket_ticket_no", "ticket_no", unique=True),
+        Index("ix_ticket_sender_id", "sender_id"),
+        Index("ix_ticket_status", "status"),
+        Index("ix_ticket_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ticket_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    ticket_no: Mapped[str] = mapped_column(String(32), nullable=False)
+    sender_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    summary: Mapped[str] = mapped_column(mysql.LONGTEXT(), nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    priority: Mapped[str] = mapped_column(String(32), nullable=False)
+    suggestion: Mapped[str | None] = mapped_column(mysql.LONGTEXT(), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(mysql.JSON(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=3),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP(3)"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        mysql.DATETIME(fsp=3),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP(3)"),
+    )
+
+
+class TicketEventRecord(Base):
+    __tablename__ = "ticket_event"
+    __table_args__ = (
+        Index("ix_ticket_event_ticket_record_id", "ticket_record_id"),
+        Index("ix_ticket_event_event_type", "event_type"),
+        Index("ix_ticket_event_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ticket_record_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("ticket.id", name="fk_ticket_event_ticket_record_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    from_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    to_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    actor: Mapped[str] = mapped_column(String(64), nullable=False)
+    trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payload_json: Mapped[dict[str, Any] | None] = mapped_column(mysql.JSON(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         mysql.DATETIME(fsp=3),
         nullable=False,

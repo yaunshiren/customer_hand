@@ -12,6 +12,7 @@ from main import app
 
 
 client = TestClient(app)
+AUTH_EVALUATOR = {"Authorization": "Bearer demo-evaluator-key"}
 
 
 @dataclass
@@ -48,7 +49,11 @@ def test_eval_rag_response_shape_and_doc_id_alignment(monkeypatch) -> None:
     )
     monkeypatch.setattr(app.state, "kb_retriever", retriever)
 
-    response = client.get("/api/eval/rag", params={"question": "小米 14 Pro 屏幕尺寸", "top_k": 99})
+    response = client.get(
+        "/api/eval/rag",
+        headers=AUTH_EVALUATOR,
+        params={"question": "小米 14 Pro 屏幕尺寸", "top_k": 99},
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -72,7 +77,11 @@ def test_eval_rag_does_not_skip_retrieval_for_feedback(monkeypatch) -> None:
     retriever = FakeRetriever(matches=[_match("DOC_FEEDBACK", "DOC_FEEDBACK-0")])
     monkeypatch.setattr(app.state, "kb_retriever", retriever)
 
-    response = client.get("/api/eval/rag", params={"question": "希望 APP 能加个深色模式"})
+    response = client.get(
+        "/api/eval/rag",
+        headers=AUTH_EVALUATOR,
+        params={"question": "希望 APP 能加个深色模式"},
+    )
 
     assert response.status_code == 200
     data = response.json()["data"]
@@ -84,6 +93,6 @@ def test_eval_rag_does_not_skip_retrieval_for_feedback(monkeypatch) -> None:
 
 
 def test_eval_rag_rejects_empty_question() -> None:
-    response = client.get("/api/eval/rag", params={"question": "   "})
+    response = client.get("/api/eval/rag", headers=AUTH_EVALUATOR, params={"question": "   "})
 
     assert response.status_code == 400

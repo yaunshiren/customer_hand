@@ -31,6 +31,11 @@ class BadRequestError(AppError):
     error_code = "bad_request"
 
 
+class ConflictError(AppError):
+    status_code = 409
+    error_code = "conflict"
+
+
 class NotFoundError(AppError):
     status_code = 404
     error_code = "not_found"
@@ -49,3 +54,23 @@ class RAGServiceError(AppError):
 class InternalError(AppError):
     status_code = 500
     error_code = "internal_error"
+
+
+class UnauthorizedError(AppError):
+    status_code = 401
+    error_code = "unauthorized"
+
+
+class ForbiddenError(AppError):
+    status_code = 403
+    error_code = "forbidden"
+
+
+class RateLimitError(AppError):
+    status_code = 429
+    error_code = "rate_limited"
+
+
+class IdempotencyBackendUnavailableError(AppError):
+    status_code = 503
+    error_code = "idempotency_backend_unavailable"

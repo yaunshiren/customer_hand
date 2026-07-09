@@ -7,6 +7,8 @@ from app.persistence.models import (
     ConversationSummary,
     EvalRecord,
     RetrievalTrace,
+    TicketEventRecord,
+    TicketRecord,
     ToolTrace,
 )
 from app.persistence.repositories import (
@@ -23,6 +25,7 @@ from app.persistence.eval_report import default_badcase_report_path, render_badc
 from app.persistence.retrieval_recorder import RetrievalTraceRecorder, record_retrieval_traces
 from app.persistence.trace_recorder import AgentTraceRecorder
 from app.persistence.tool_recorder import ToolTraceRecorder, record_tool_trace
+from app.persistence.ticket_repository import TicketRepository
 
 __all__ = [
     "AgentTrace",
@@ -36,6 +39,9 @@ __all__ = [
     "RetrievalTrace",
     "RetrievalTraceCreate",
     "RetrievalTraceRecorder",
+    "TicketEventRecord",
+    "TicketRecord",
+    "TicketRepository",
     "ToolTrace",
     "ToolTraceCreate",
     "ToolTraceRecorder",

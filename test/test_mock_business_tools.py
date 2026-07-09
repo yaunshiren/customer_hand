@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
 import app.tools.service as tool_service_module
 from app.tools import MockBusinessToolService, MockCustomerServiceStore, MockToolError, ToolExecutionPolicy, create_ticket, query_order
+from app.tickets.service import TicketService
+from app.tickets.store import InMemoryTicketStore
 
 
 def test_query_order_returns_structured_result() -> None:
@@ -48,12 +51,80 @@ def test_create_ticket_returns_structured_result() -> None:
     assert result.success is True
     assert result.tool_name == "create_ticket"
     assert result.data is not None
-    assert result.data["ticket_id"].startswith("mock_ticket_")
+    assert result.data["ticket_id"]
+    assert re.fullmatch(r"TKT-\d{8}-[A-F0-9]{12}", result.data["ticket_no"])
     assert result.data["category"] == "complaint"
     assert result.data["description"] == "service attitude was poor"
     assert result.data["user_id"] == "u_001"
     assert result.data["status"] == "open"
     assert result.data["priority"] == "high"
+    assert result.metadata["max_retries"] == 0
+
+
+def test_query_ticket_status_returns_persisted_ticket_and_records_trace(monkeypatch) -> None:
+    traces: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        tool_service_module,
+        "record_tool_trace",
+        lambda **kwargs: traces.append(kwargs),
+    )
+    service = MockBusinessToolService(
+        ticket_service=TicketService(store=InMemoryTicketStore())
+    )
+    created = service.create_ticket("complaint", "我要投诉客服态度差", "u_001")
+    ticket_no = str((created.data or {})["ticket_no"])
+
+    queried = service.query_ticket_status(ticket_no, trace_id="trace-ticket-query")
+
+    assert queried.success is True
+    assert queried.data is not None
+    assert queried.data["ticket_no"] == ticket_no
+    assert queried.data["ticket_id"] == created.data["ticket_id"]
+    assert [trace["tool_name"] for trace in traces] == [
+        "create_ticket",
+        "query_ticket_status",
+    ]
+    assert traces[-1]["trace_id"] == "trace-ticket-query"
+
+
+def test_query_ticket_status_not_found_returns_standard_tool_error() -> None:
+    service = MockBusinessToolService(
+        ticket_service=TicketService(store=InMemoryTicketStore())
+    )
+
+    result = service.query_ticket_status("TKT-20260709-FFFFFFFFFFFF")
+
+    assert result.success is False
+    assert result.error is not None
+    assert result.error.code == "TICKET_NOT_FOUND"
+    assert result.error.retryable is False
+    assert result.error.details == {
+        "ticket_no": "TKT-20260709-FFFFFFFFFFFF",
+    }
+
+
+def test_create_ticket_does_not_retry_on_failure() -> None:
+    class FailingTicketService(TicketService):
+        def __init__(self) -> None:
+            super().__init__(store=InMemoryTicketStore())
+            self.calls = 0
+
+        def create_ticket(self, *args: Any, **kwargs: Any):
+            self.calls += 1
+            raise RuntimeError("ticket database unavailable")
+
+    ticket_service = FailingTicketService()
+    service = MockBusinessToolService(
+        ticket_service=ticket_service,
+        policy=ToolExecutionPolicy(max_retries=3),
+    )
+
+    result = service.create_ticket("complaint", "need help", "u_001")
+
+    assert result.success is False
+    assert ticket_service.calls == 1
+    assert result.metadata["attempt_count"] == 1
+    assert result.metadata["max_retries"] == 0
 
 
 def test_create_invoice_returns_structured_result() -> None:
@@ -242,4 +313,5 @@ def test_module_level_functions_are_callable() -> None:
     assert order_result.data["status"] == "delivered"
     assert ticket_result.success is True
     assert ticket_result.data is not None
-    assert ticket_result.data["ticket_id"].startswith("mock_ticket_")
+    assert ticket_result.data["ticket_id"]
+    assert re.fullmatch(r"TKT-\d{8}-[A-F0-9]{12}", ticket_result.data["ticket_no"])

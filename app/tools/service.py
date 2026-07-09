@@ -9,6 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from app.core.trace import get_trace_id
 from app.persistence.tool_recorder import record_tool_trace
+from app.settings import settings
+from app.tickets.models import Ticket
+from app.tickets.service import TicketNotFoundError, TicketService
 from app.tools.mock_store import MockCustomerServiceStore, MockToolError
 from app.tools.models import ToolCallResult, ToolError
 
@@ -52,6 +55,17 @@ class CreateTicketArgs(BaseModel):
         return _clean_required_text(value, info.field_name)
 
 
+class QueryTicketStatusArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ticket_no: str = Field(min_length=1, description="User-visible ticket number.")
+
+    @field_validator("ticket_no")
+    @classmethod
+    def _validate_ticket_no(cls, value: str) -> str:
+        return _clean_required_text(value, "ticket_no").upper()
+
+
 class CreateInvoiceArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -70,9 +84,11 @@ class MockBusinessToolService:
         store: MockCustomerServiceStore | None = None,
         *,
         policy: ToolExecutionPolicy | None = None,
+        ticket_service: TicketService | None = None,
     ) -> None:
         self.store = store or MockCustomerServiceStore()
         self.policy = policy or ToolExecutionPolicy()
+        self.ticket_service = ticket_service
 
     def query_order(self, order_id: str, *, trace_id: str | None = None) -> ToolCallResult:
         return self._run(
@@ -104,12 +120,27 @@ class MockBusinessToolService:
             tool_name="create_ticket",
             args_model=CreateTicketArgs,
             raw_arguments={"category": category, "description": description, "user_id": user_id},
-            operation=lambda args: self.store.create_ticket(
-                category=args.category,
-                description=args.description,
-                user_id=args.user_id,
-            ),
+            operation=self._create_ticket,
             trace_id=trace_id,
+            max_retries_override=0,
+            metadata_source=settings.ticket_store_backend,
+            mock=settings.ticket_store_backend == "memory",
+        )
+
+    def query_ticket_status(
+        self,
+        ticket_no: str,
+        *,
+        trace_id: str | None = None,
+    ) -> ToolCallResult:
+        return self._run(
+            tool_name="query_ticket_status",
+            args_model=QueryTicketStatusArgs,
+            raw_arguments={"ticket_no": ticket_no},
+            operation=self._query_ticket_status,
+            trace_id=trace_id,
+            metadata_source=settings.ticket_store_backend,
+            mock=settings.ticket_store_backend == "memory",
         )
 
     def create_invoice(self, order_id: str, title: str, *, trace_id: str | None = None) -> ToolCallResult:
@@ -129,11 +160,19 @@ class MockBusinessToolService:
         raw_arguments: dict[str, Any],
         operation: Callable[[Any], dict[str, Any]],
         trace_id: str | None,
+        max_retries_override: int | None = None,
+        metadata_source: str = "mock",
+        mock: bool = True,
     ) -> ToolCallResult:
         started_at = time.perf_counter()
         effective_trace_id = trace_id or get_trace_id()
         arguments = dict(raw_arguments)
         attempts: list[dict[str, Any]] = []
+        effective_max_retries = (
+            self.policy.max_retries
+            if max_retries_override is None
+            else max(0, int(max_retries_override))
+        )
 
         try:
             parsed_args = args_model.model_validate(raw_arguments)
@@ -151,6 +190,9 @@ class MockBusinessToolService:
                     details={"errors": _validation_errors(exc)},
                 ),
                 attempts=attempts,
+                max_retries=effective_max_retries,
+                metadata_source=metadata_source,
+                mock=mock,
             )
         else:
             result = self._execute_with_policy(
@@ -161,6 +203,9 @@ class MockBusinessToolService:
                 started_at=started_at,
                 trace_id=effective_trace_id,
                 attempts=attempts,
+                max_retries=effective_max_retries,
+                metadata_source=metadata_source,
+                mock=mock,
             )
 
         record_tool_trace(
@@ -182,6 +227,9 @@ class MockBusinessToolService:
         trace_id: str | None,
         error: ToolError,
         attempts: list[dict[str, Any]] | None = None,
+        max_retries: int | None = None,
+        metadata_source: str = "mock",
+        mock: bool = True,
     ) -> ToolCallResult:
         return ToolCallResult(
             tool_name=tool_name,
@@ -192,7 +240,12 @@ class MockBusinessToolService:
             error=error,
             latency_ms=_elapsed_ms(started_at),
             trace_id=trace_id,
-            metadata=self._metadata(attempts or []),
+            metadata=self._metadata(
+                attempts or [],
+                max_retries=max_retries,
+                source=metadata_source,
+                mock=mock,
+            ),
         )
 
     def _execute_with_policy(
@@ -205,8 +258,11 @@ class MockBusinessToolService:
         started_at: float,
         trace_id: str | None,
         attempts: list[dict[str, Any]],
+        max_retries: int,
+        metadata_source: str,
+        mock: bool,
     ) -> ToolCallResult:
-        max_attempts = max(1, self.policy.max_retries + 1)
+        max_attempts = max(1, max_retries + 1)
         last_error: ToolError | None = None
 
         for attempt_index in range(1, max_attempts + 1):
@@ -232,7 +288,12 @@ class MockBusinessToolService:
                     data=data,
                     latency_ms=_elapsed_ms(started_at),
                     trace_id=trace_id,
-                    metadata=self._metadata(attempts),
+                    metadata=self._metadata(
+                        attempts,
+                        max_retries=max_retries,
+                        source=metadata_source,
+                        mock=mock,
+                    ),
                 )
             except TimeoutError:
                 last_error = ToolError(
@@ -287,6 +348,9 @@ class MockBusinessToolService:
                 retryable=False,
             ),
             attempts=attempts,
+            max_retries=max_retries,
+            metadata_source=metadata_source,
+            mock=mock,
         )
 
     def _execute_operation(self, operation: Callable[[Any], dict[str, Any]], parsed_args: Any) -> dict[str, Any]:
@@ -301,15 +365,49 @@ class MockBusinessToolService:
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 
-    def _metadata(self, attempts: list[dict[str, Any]]) -> dict[str, Any]:
+    def _metadata(
+        self,
+        attempts: list[dict[str, Any]],
+        *,
+        max_retries: int | None = None,
+        source: str = "mock",
+        mock: bool = True,
+    ) -> dict[str, Any]:
         return {
-            "source": "mock",
-            "mock": True,
+            "source": source,
+            "mock": mock,
             "attempt_count": len(attempts),
-            "max_retries": self.policy.max_retries,
+            "max_retries": self.policy.max_retries if max_retries is None else max_retries,
             "timeout_seconds": self.policy.timeout_seconds,
             "attempts": attempts,
         }
+
+    def _ticket_service(self) -> TicketService:
+        if self.ticket_service is None:
+            self.ticket_service = TicketService()
+        return self.ticket_service
+
+    def _create_ticket(self, args: CreateTicketArgs) -> dict[str, Any]:
+        # Writes are intentionally single-attempt. Entry idempotency protects the request boundary.
+        ticket = self._ticket_service().create_ticket(
+            sender_id=args.user_id,
+            text=args.description,
+            category=args.category,
+            metadata={"source": "business_tool"},
+        )
+        return _ticket_tool_data(ticket)
+
+    def _query_ticket_status(self, args: QueryTicketStatusArgs) -> dict[str, Any]:
+        try:
+            ticket = self._ticket_service().query_ticket_status(args.ticket_no)
+        except TicketNotFoundError as exc:
+            raise MockToolError(
+                code="TICKET_NOT_FOUND",
+                message="Ticket does not exist.",
+                retryable=False,
+                details={"ticket_no": exc.ticket_no},
+            ) from exc
+        return _ticket_tool_data(ticket)
 
 
 _default_service = MockBusinessToolService()
@@ -331,6 +429,10 @@ def create_ticket(
     trace_id: str | None = None,
 ) -> ToolCallResult:
     return _default_service.create_ticket(category, description, user_id, trace_id=trace_id)
+
+
+def query_ticket_status(ticket_no: str, *, trace_id: str | None = None) -> ToolCallResult:
+    return _default_service.query_ticket_status(ticket_no, trace_id=trace_id)
 
 
 def create_invoice(order_id: str, title: str, *, trace_id: str | None = None) -> ToolCallResult:
@@ -365,3 +467,17 @@ def _validation_errors(exc: ValidationError) -> list[dict[str, Any]]:
             item["loc"] = [str(part) for part in loc]
         errors.append(item)
     return errors
+
+
+def _ticket_tool_data(ticket: Ticket) -> dict[str, Any]:
+    return {
+        "ticket_id": ticket.ticket_id,
+        "ticket_no": ticket.ticket_no,
+        "category": ticket.category,
+        "description": str(ticket.metadata.get("raw_text") or ticket.summary),
+        "user_id": ticket.sender_id,
+        "status": ticket.status,
+        "priority": ticket.priority,
+        "created_at": ticket.created_at.isoformat(),
+        "updated_at": ticket.updated_at.isoformat(),
+    }

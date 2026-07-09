@@ -10,6 +10,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# Set before app.settings is imported so unit tests never require MySQL implicitly.
+os.environ["TICKET_STORE_BACKEND"] = "memory"
+# Default pytest must not require an external Redis service.
+os.environ["IDEMPOTENCY_BACKEND"] = "memory"
+
+from app.settings import settings
+
 
 class FakeEmbeddingClient:
     """固定向量，CI 不调百炼 API。"""
@@ -33,6 +40,35 @@ class FakeEmbeddingClient:
         if "退货" in query:
             return self.embed_documents(["退货"])[0]
         return self.embed_documents([query])[0]
+
+
+@pytest.fixture(autouse=True)
+def demo_api_key_config(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        settings,
+        "api_key_principals",
+        {
+            "demo-user-key": {
+                "principal_id": "user_001",
+                "tenant_id": "tenant_demo",
+                "roles": ["user"],
+            },
+            "demo-evaluator-key": {
+                "principal_id": "evaluator_001",
+                "tenant_id": "tenant_demo",
+                "roles": ["evaluator"],
+            },
+            "demo-admin-key": {
+                "principal_id": "admin_001",
+                "tenant_id": "tenant_demo",
+                "roles": ["admin"],
+            },
+        },
+    )
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "auth_allow_dev_tokens", True)
+    monkeypatch.setattr(settings, "ticket_store_backend", "memory")
+    monkeypatch.setattr(settings, "idempotency_backend", "memory")
 
 
 @pytest.fixture

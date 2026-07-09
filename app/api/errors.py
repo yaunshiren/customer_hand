@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.core.exceptions import AppError
@@ -18,11 +19,20 @@ def _trace_from_request(request: Request) -> str:
     return "-"
 
 
-def _error_body(request: Request, *, detail: str, error_code: str | None = None) -> dict[str, Any]:
-    body: dict[str, Any] = {"detail": detail, "trace_id": _trace_from_request(request)}
-    if error_code is not None:
-        body["error_code"] = error_code
-    return body
+def _error_body(
+    request: Request,
+    *,
+    detail: str,
+    error_code: str,
+    message: str | None = None,
+) -> dict[str, Any]:
+    text = str(message or detail)
+    return {
+        "error_code": error_code,
+        "message": text,
+        "detail": str(detail),
+        "trace_id": _trace_from_request(request),
+    }
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -53,6 +63,27 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=exc.status_code,
             content=_error_body(request, detail=detail, error_code="http_error"),
         )
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_error_handler(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        details = [
+            {
+                "location": list(item.get("loc") or []),
+                "message": str(item.get("msg") or "invalid value"),
+                "type": str(item.get("type") or "validation_error"),
+            }
+            for item in exc.errors()
+        ]
+        payload = _error_body(
+            request,
+            detail="request validation failed",
+            error_code="validation_error",
+        )
+        payload["details"] = {"errors": details}
+        return JSONResponse(status_code=422, content=payload)
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
