@@ -14,10 +14,17 @@ BusinessQuestionType = Literal[
     "complaint",
     "invoice_policy",
     "invoice_create",
+    "ticket_status_query",
     "unknown",
 ]
 BusinessRoute = Literal["rag", "tool", "ticket", "clarify", "fallback"]
-BusinessToolName = Literal["query_order", "query_logistics", "create_ticket", "create_invoice"]
+BusinessToolName = Literal[
+    "query_order",
+    "query_logistics",
+    "create_ticket",
+    "query_ticket_status",
+    "create_invoice",
+]
 RiskLevel = Literal["low", "medium", "high"]
 
 
@@ -58,6 +65,19 @@ class BusinessQuestionClassifier:
         intent_type = _intent_type(intent_result)
         order_id = _extract_order_id(normalized, tracker)
         invoice_title = _extract_invoice_title(normalized)
+        ticket_no = _extract_ticket_no(normalized)
+
+        if ticket_no and _is_ticket_status_query(normalized):
+            return _result(
+                question_type="ticket_status_query",
+                route="tool",
+                confidence=0.96,
+                target_tool="query_ticket_status",
+                required_arguments=["ticket_no"],
+                extracted_arguments={"ticket_no": ticket_no},
+                signals=_signals(normalized, intent_id, "ticket_status_query"),
+                reason="explicit ticket number and status intent can query ticket persistence",
+            )
 
         if _is_complaint(normalized, intent_id):
             args = {
@@ -306,6 +326,11 @@ def _extract_invoice_title(text: str) -> str | None:
     return None
 
 
+def _extract_ticket_no(text: str) -> str | None:
+    match = TICKET_NO_RE.search(text)
+    return match.group("ticket_no").upper() if match else None
+
+
 def _clean_invoice_title(value: str) -> str | None:
     title = re.split(r"[,，。；;\s]", value.strip(), maxsplit=1)[0].strip("：:,.，。；;")
     if not title:
@@ -325,6 +350,10 @@ def _compact_args(**kwargs: str | None) -> dict[str, str]:
 
 def _is_complaint(text: str, intent_id: str) -> bool:
     return intent_id.startswith("F3_") or _contains_any(text, COMPLAINT_KEYWORDS)
+
+
+def _is_ticket_status_query(text: str) -> bool:
+    return _contains_any(text, TICKET_STATUS_QUERY_KEYWORDS)
 
 
 def _is_invoice(text: str, intent_id: str) -> bool:
@@ -381,6 +410,10 @@ EXPLICIT_ORDER_PATTERNS = (
     re.compile(r"(?:订单号?|单号|订单编号|order(?:\s*id)?)[\s:#：-]*(?P<order_id>[a-z0-9][a-z0-9_-]{3,63})", re.I),
 )
 FALLBACK_ORDER_ID_RE = re.compile(r"(?<![a-z0-9_-])(?P<order_id>[a-z]?\d[a-z0-9_-]{3,63})(?![a-z0-9_-])", re.I)
+TICKET_NO_RE = re.compile(
+    r"(?<![a-z0-9-])(?P<ticket_no>TKT-\d{8}-[A-F0-9]{12})(?![a-z0-9-])",
+    re.I,
+)
 
 INVOICE_TITLE_PATTERNS = (
     re.compile(r"(?:发票抬头|抬头|公司名称|开票名称)[\s:：]*(?:是|为|写成)?[\s:：]*(?P<title>[\u4e00-\u9fa5a-z0-9（）()·.\-&]{2,80})", re.I),
@@ -415,6 +448,14 @@ LOGISTICS_KEYWORDS = (
 INVOICE_KEYWORDS = ("发票", "开票", "抬头", "税号")
 INVOICE_POLICY_KEYWORDS = ("怎么开发票", "如何开发票", "哪里开发票", "发票流程", "开票流程", "发票规则")
 COMPLAINT_KEYWORDS = ("投诉", "客服态度", "态度差", "不满意", "差评", "消协", "欺骗", "举报")
+TICKET_STATUS_QUERY_KEYWORDS = (
+    "工单状态",
+    "工单进度",
+    "处理进度",
+    "处理到哪",
+    "ticket status",
+    "ticket progress",
+)
 POLICY_QUESTION_KEYWORDS = ("怎么", "如何", "能不能", "可以吗", "规则", "流程", "政策", "条件")
 GENERAL_POLICY_KEYWORDS = (
     "政策",

@@ -59,7 +59,7 @@ def test_complaint_creates_ticket_through_business_tool() -> None:
     assert metadata["business_tool"] == "create_ticket"
     assert metadata["tool_name"] == "create_ticket"
     assert metadata["tool_success"] is True
-    assert metadata["ticket_id"].startswith("mock_ticket_")
+    assert metadata["ticket_id"]
     assert "工单" in response[0]["text"]
 
 

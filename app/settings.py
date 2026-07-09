@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     trace_db_pool_size: int = Field(default=5)
     trace_db_max_overflow: int = Field(default=10)
     trace_db_connect_timeout: int = Field(default=2)
+    ticket_store_backend: Literal["mysql", "memory"] = Field(default="mysql")
     local_embedding_query_instruction: str = Field(
         default="为这个句子生成表示以用于检索相关文章："
     )

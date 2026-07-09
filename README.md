@@ -151,6 +151,16 @@ docker compose up --build
 
 `./data` 会挂载到容器内 `/app/data`，用于知识库、索引和业务数据。API 容器会通过 `TRACE_DB_DOCKER_URL` 连接 compose 内的 MySQL。
 
+工单默认持久化到同一个 MySQL：
+
+```env
+TICKET_STORE_BACKEND=mysql
+```
+
+仅本地演示或单元测试可显式设为 `memory`。MySQL 模式下，`ticket.id` 是数据库内部
+主键，`ticket_id` 是兼容 Agent 的稳定系统 ID，`ticket_no` 是返回给用户并供
+`query_ticket_status` 查询的业务工单号。部署新版本前需执行 `alembic upgrade head`。
+
 ---
 
 ## API 快速验证

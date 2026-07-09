@@ -74,6 +74,35 @@ def test_complaint_targets_ticket_tool_with_context() -> None:
     assert result.missing_arguments == []
 
 
+def test_explicit_ticket_number_and_status_intent_targets_query_tool() -> None:
+    result = BusinessQuestionClassifier().classify(
+        "请查一下工单 TKT-20260709-A1B2C3D4E5F6 的处理进度"
+    )
+
+    assert result.question_type == "ticket_status_query"
+    assert result.route == "tool"
+    assert result.target_tool == "query_ticket_status"
+    assert result.extracted_arguments == {
+        "ticket_no": "TKT-20260709-A1B2C3D4E5F6",
+    }
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "如何提交工单",
+        "工单怎么处理",
+        "售后工单是什么",
+        "工单状态怎么样",
+        "这是我的工单 TKT-20260709-A1B2C3D4E5F6",
+    ],
+)
+def test_general_ticket_questions_do_not_trigger_status_tool(text: str) -> None:
+    result = BusinessQuestionClassifier().classify(text)
+
+    assert result.target_tool != "query_ticket_status"
+
+
 def test_invoice_create_with_order_id_and_company_title_targets_invoice_tool() -> None:
     result = BusinessQuestionClassifier().classify("订单 10001 开公司发票")
 

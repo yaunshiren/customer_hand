@@ -54,7 +54,7 @@ def test_acceptance_complaint_creates_ticket() -> None:
     assert metadata["business_tool"] == "create_ticket"
     assert metadata["tool_name"] == "create_ticket"
     assert metadata["tool_success"] is True
-    assert metadata["ticket_id"].startswith("mock_ticket_")
+    assert metadata["ticket_id"]
 
 
 def test_acceptance_invoice_policy_uses_rag() -> None:

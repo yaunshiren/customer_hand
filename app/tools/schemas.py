@@ -5,7 +5,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from app.tools.service import CreateInvoiceArgs, CreateTicketArgs, QueryLogisticsArgs, QueryOrderArgs
+from app.tools.service import (
+    CreateInvoiceArgs,
+    CreateTicketArgs,
+    QueryLogisticsArgs,
+    QueryOrderArgs,
+    QueryTicketStatusArgs,
+)
 
 
 RiskLevel = Literal["low", "medium", "high"]
@@ -64,6 +70,7 @@ ARGUMENT_MODELS: dict[str, type[BaseModel]] = {
     "query_order": QueryOrderArgs,
     "query_logistics": QueryLogisticsArgs,
     "create_ticket": CreateTicketArgs,
+    "query_ticket_status": QueryTicketStatusArgs,
     "create_invoice": CreateInvoiceArgs,
 }
 
@@ -192,9 +199,10 @@ LOGISTICS_DATA_SCHEMA = {
 
 TICKET_DATA_SCHEMA = {
     "type": ["object", "null"],
-    "required": ["ticket_id", "category", "description", "user_id", "status", "priority", "created_at"],
+    "required": ["ticket_id", "ticket_no", "category", "description", "user_id", "status", "priority", "created_at"],
     "properties": {
         "ticket_id": {"type": "string"},
+        "ticket_no": {"type": "string"},
         "category": {"type": "string"},
         "description": {"type": "string"},
         "user_id": {"type": "string"},
@@ -222,7 +230,13 @@ INVOICE_DATA_SCHEMA = {
 }
 
 
-TOOL_ORDER = ("query_order", "query_logistics", "create_ticket", "create_invoice")
+TOOL_ORDER = (
+    "query_order",
+    "query_logistics",
+    "create_ticket",
+    "query_ticket_status",
+    "create_invoice",
+)
 
 TOOL_SCHEMAS: dict[str, BusinessToolSchema] = {
     "query_order": BusinessToolSchema(
@@ -287,6 +301,27 @@ TOOL_SCHEMAS: dict[str, BusinessToolSchema] = {
                     "description": "I want to complain about poor service attitude",
                     "user_id": "u_001",
                 },
+            )
+        ],
+        risk_level="low",
+    ),
+    "query_ticket_status": BusinessToolSchema(
+        name="query_ticket_status",
+        description="Query the current status of an existing customer service ticket by ticket_no.",
+        parameters=_argument_schema(QueryTicketStatusArgs),
+        required=_required(QueryTicketStatusArgs),
+        returns=_result_schema(TICKET_DATA_SCHEMA),
+        when_to_use=[
+            "The user provides a ticket number and explicitly asks for its current status or progress.",
+        ],
+        when_not_to_use=[
+            "The user asks how to create a ticket or asks a general ticket policy question.",
+            "No explicit ticket number is present.",
+        ],
+        examples=[
+            ToolExample(
+                user_text="What is the status of ticket TKT-20260709-A1B2C3D4E5F6?",
+                arguments={"ticket_no": "TKT-20260709-A1B2C3D4E5F6"},
             )
         ],
         risk_level="low",

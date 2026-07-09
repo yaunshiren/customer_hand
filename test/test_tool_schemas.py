@@ -13,7 +13,13 @@ from app.tools import (
 )
 
 
-EXPECTED_TOOL_NAMES = ["query_order", "query_logistics", "create_ticket", "create_invoice"]
+EXPECTED_TOOL_NAMES = [
+    "query_order",
+    "query_logistics",
+    "create_ticket",
+    "query_ticket_status",
+    "create_invoice",
+]
 
 
 def test_list_tool_schemas_exposes_first_batch_tools_in_stable_order() -> None:
@@ -32,6 +38,7 @@ def test_list_tool_schemas_exposes_first_batch_tools_in_stable_order() -> None:
         ("query_order", ["order_id"]),
         ("query_logistics", ["order_id"]),
         ("create_ticket", ["category", "description", "user_id"]),
+        ("query_ticket_status", ["ticket_no"]),
         ("create_invoice", ["order_id", "title"]),
     ],
 )
@@ -91,5 +98,6 @@ def test_prompt_builder_default_tools_come_from_business_tool_schema_registry() 
     assert "query_order" in prompt
     assert "query_logistics" in prompt
     assert "create_ticket" in prompt
+    assert "query_ticket_status" in prompt
     assert "create_invoice" in prompt
     assert "get_logistics_info" not in prompt

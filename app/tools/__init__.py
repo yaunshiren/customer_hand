@@ -16,6 +16,7 @@ from .service import (
     create_ticket,
     query_logistics,
     query_order,
+    query_ticket_status,
 )
 
 __all__ = [
@@ -35,5 +36,6 @@ __all__ = [
     "list_tool_schemas",
     "query_logistics",
     "query_order",
+    "query_ticket_status",
     "validate_tool_arguments",
 ]

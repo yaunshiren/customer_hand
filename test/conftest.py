@@ -10,6 +10,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# Set before app.settings is imported so unit tests never require MySQL implicitly.
+os.environ["TICKET_STORE_BACKEND"] = "memory"
+
 from app.settings import settings
 
 
@@ -62,6 +65,7 @@ def demo_api_key_config(monkeypatch: pytest.MonkeyPatch):
     )
     monkeypatch.setattr(settings, "app_env", "development")
     monkeypatch.setattr(settings, "auth_allow_dev_tokens", True)
+    monkeypatch.setattr(settings, "ticket_store_backend", "memory")
 
 
 @pytest.fixture
