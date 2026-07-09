@@ -28,4 +28,8 @@ class TrackerResponse(BaseModel):
 
 
 class ErrorResponse(BaseModel):
+    error_code: str
+    message: str
     detail: str
+    trace_id: str
+    details: dict[str, Any] = Field(default_factory=dict)

@@ -21,7 +21,7 @@ from app.entry.rate_limit import reset_rate_limiter  # noqa: E402
 
 
 client = TestClient(app)
-AUTH_RESET = {"Authorization": "Bearer dev:test_user_day4_reset:tenant_demo:user"}
+AUTH_USER = {"Authorization": "Bearer demo-user-key"}
 
 
 class FakeAgent:
@@ -78,6 +78,7 @@ def test_send_message_returns_list():
 
     response = client.post(
         "/api/messages",
+        headers=AUTH_USER,
         json={
             "sender_id": sender_id,
             "message": "我要退货",
@@ -98,11 +99,11 @@ def test_send_message_returns_list():
 
 
 def test_reset_tracker():
-    sender_id = "test_user_day4_reset"
+    sender_id = "user_001"
 
     create_response = client.post(
         "/api/messages",
-        headers=AUTH_RESET,
+        headers=AUTH_USER,
         json={
             "sender_id": sender_id,
             "message": "查物流",
@@ -117,7 +118,7 @@ def test_reset_tracker():
     assert tracker_data["exists"] is True
     assert "tracker" in tracker_data
 
-    reset_response = client.post(f"/api/tracker/{sender_id}/reset", headers=AUTH_RESET)
+    reset_response = client.post(f"/api/tracker/{sender_id}/reset", headers=AUTH_USER)
     assert reset_response.status_code == 200
     reset_data = reset_response.json()
     assert reset_data["sender_id"] == sender_id

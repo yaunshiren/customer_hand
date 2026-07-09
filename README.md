@@ -163,20 +163,22 @@ curl http://127.0.0.1:8000/health
 
 ### 发送消息
 
-开发环境默认允许匿名消息请求：
+`/api/messages` 需要 `user`、`evaluator` 或 `admin` API Key。下面使用
+`.env.example` 中的 demo user key：
 
 ```cmd
 curl -X POST http://127.0.0.1:8000/api/messages ^
   -H "Content-Type: application/json" ^
+  -H "Authorization: Bearer demo-user-key" ^
   -d "{\"sender_id\":\"user_001\",\"message\":\"我要退货\"}"
 ```
 
-也可以使用开发 token：
+也可以使用 `X-API-Key`：
 
 ```cmd
 curl -X POST http://127.0.0.1:8000/api/messages ^
   -H "Content-Type: application/json" ^
-  -H "Authorization: Bearer dev:user_001:tenant_demo:user" ^
+  -H "X-API-Key: demo-user-key" ^
   -d "{\"sender_id\":\"user_001\",\"message\":\"查物流\",\"conversation_id\":\"conv_001\"}"
 ```
 
@@ -194,7 +196,7 @@ curl http://127.0.0.1:8000/api/tracker/user_001/full
 
 ```cmd
 curl -X POST http://127.0.0.1:8000/api/tracker/user_001/reset ^
-  -H "Authorization: Bearer dev:user_001:tenant_demo:user"
+  -H "Authorization: Bearer demo-user-key"
 ```
 
 重置后再次查询可能返回 `404`，错误响应会带 `trace_id`。
@@ -205,7 +207,7 @@ curl -X POST http://127.0.0.1:8000/api/tracker/user_001/reset ^
 
 ```cmd
 curl "http://127.0.0.1:8000/api/eval/rag?question=退货规则&top_k=5" ^
-  -H "Authorization: Bearer dev:evaluator_001:tenant_demo:evaluator"
+  -H "Authorization: Bearer demo-evaluator-key"
 ```
 
 ### 知识库状态与重建
@@ -220,18 +222,22 @@ curl http://127.0.0.1:8000/api/knowledge/status
 
 ```cmd
 curl -X POST http://127.0.0.1:8000/api/knowledge/reindex ^
-  -H "Authorization: Bearer dev:admin_001:tenant_demo:admin"
+  -H "Authorization: Bearer demo-admin-key" ^
+  -H "Idempotency-Key: reindex-20260709-001"
 ```
 
 ---
 
 ## 鉴权与权限
 
-开发 token 格式：
+API Key 在 `.env` 中映射为 Principal：
 
 ```text
-Bearer dev:{user_id}:{tenant_id}:{role1,role2}
+API_KEY_PRINCIPALS={"demo-user-key":{"principal_id":"user_001","tenant_id":"tenant_demo","roles":["user"]}}
 ```
+
+不要把真实 API Key 提交到仓库。服务优先读取
+`Authorization: Bearer <api_key>`，没有 Authorization 时再读取 `X-API-Key`。
 
 常见角色：
 
@@ -239,7 +245,9 @@ Bearer dev:{user_id}:{tenant_id}:{role1,role2}
 - `evaluator`：可访问 RAG 评测接口。
 - `admin`：可执行管理员操作，例如知识库重建，也可重置任意 tracker。
 
-`APP_ENV=production` 时，请求缺少 `Authorization` 会返回未授权错误。
+开发 token `Bearer dev:{user_id}:{tenant_id}:{roles}` 仅作为旧调用兼容，
+要求 `AUTH_ALLOW_DEV_TOKENS=true`，并且在生产环境中始终禁用。受保护接口缺少
+或使用无效 API Key 时返回 `401`。
 
 ---
 

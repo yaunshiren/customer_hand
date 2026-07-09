@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 EntrySource = Literal["web", "app", "api", "webhook", "scheduler"]
@@ -12,11 +12,28 @@ AuthType = Literal["anonymous", "dev_token", "jwt", "api_key", "system"]
 class Principal(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    principal_id: str = Field(default="anonymous", min_length=1)
     user_id: str = Field(default="anonymous", min_length=1)
     tenant_id: str = Field(default="default", min_length=1)
     roles: list[str] = Field(default_factory=lambda: ["anonymous"])
+    source: str = Field(default="anonymous", min_length=1)
     data_scope: dict[str, Any] = Field(default_factory=dict)
     auth_type: AuthType = "anonymous"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sync_principal_and_user_id(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        principal_id = str(data.get("principal_id") or "").strip()
+        user_id = str(data.get("user_id") or "").strip()
+        if principal_id and user_id and principal_id != user_id:
+            raise ValueError("principal_id and user_id must match")
+        resolved_id = principal_id or user_id or "anonymous"
+        data["principal_id"] = resolved_id
+        data["user_id"] = resolved_id
+        return data
 
     @field_validator("roles")
     @classmethod

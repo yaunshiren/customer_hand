@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import os
+import hmac
 from typing import Iterable
 
 from fastapi import Request
 
 from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.entry.models import Principal
+from app.settings import settings
 
 
 PRODUCTION_ENVS = {"prod", "production"}
@@ -17,24 +18,11 @@ def authenticate_request(request: Request) -> Principal:
     if auth_header and auth_header.strip():
         return _principal_from_authorization(auth_header)
 
-    if _is_production():
-        raise UnauthorizedError("authorization required")
+    api_key = request.headers.get("x-api-key")
+    if api_key and api_key.strip():
+        return _principal_from_credential(api_key.strip(), source="x_api_key")
 
-    return Principal(
-        user_id="anonymous",
-        tenant_id="default",
-        roles=["anonymous"],
-        auth_type="anonymous",
-        data_scope={"anonymous_dev": True},
-    )
-
-
-def require_authenticated_or_dev_anonymous(principal: Principal) -> None:
-    if principal.auth_type != "anonymous":
-        return
-    if "anonymous" in principal.roles and principal.data_scope.get("anonymous_dev") is True:
-        return
-    raise UnauthorizedError("authorization required")
+    raise UnauthorizedError("API key is required")
 
 
 def require_any_role(principal: Principal, allowed_roles: Iterable[str]) -> None:
@@ -59,7 +47,54 @@ def _principal_from_authorization(value: str) -> Principal:
     if scheme.lower() != "bearer" or not token.strip():
         raise UnauthorizedError("invalid authorization header")
 
-    return _principal_from_dev_token(token.strip())
+    return _principal_from_credential(token.strip(), source="authorization_bearer")
+
+
+def _principal_from_credential(token: str, *, source: str) -> Principal:
+    profile = _find_api_key_profile(token)
+    if profile is not None:
+        return _principal_from_api_key_profile(profile, source=source)
+
+    if token.startswith("dev:") and _dev_tokens_allowed():
+        return _principal_from_dev_token(token)
+
+    raise UnauthorizedError("invalid API key")
+
+
+def _find_api_key_profile(token: str) -> dict[str, object] | None:
+    matched: dict[str, object] | None = None
+    for configured_key, profile in settings.api_key_principals.items():
+        key = str(configured_key or "")
+        if (
+            key
+            and hmac.compare_digest(token.encode("utf-8"), key.encode("utf-8"))
+            and isinstance(profile, dict)
+        ):
+            matched = dict(profile)
+    return matched
+
+
+def _principal_from_api_key_profile(profile: dict[str, object], *, source: str) -> Principal:
+    principal_id = str(profile.get("principal_id") or profile.get("user_id") or "").strip()
+    tenant_id = str(profile.get("tenant_id") or "").strip()
+    roles_value = profile.get("roles")
+    roles = (
+        [str(item).strip().lower() for item in roles_value if str(item).strip()]
+        if isinstance(roles_value, list)
+        else []
+    )
+    if not principal_id or not tenant_id or not roles:
+        raise UnauthorizedError("invalid API key configuration")
+
+    return Principal(
+        principal_id=principal_id,
+        user_id=principal_id,
+        tenant_id=tenant_id,
+        roles=roles,
+        source=source,
+        auth_type="api_key",
+        data_scope={"tenant_id": tenant_id},
+    )
 
 
 def _principal_from_dev_token(token: str) -> Principal:
@@ -77,13 +112,19 @@ def _principal_from_dev_token(token: str) -> Principal:
         raise UnauthorizedError("invalid dev token")
 
     return Principal(
+        principal_id=user_id,
         user_id=user_id,
         tenant_id=tenant_id,
         roles=roles,
+        source="dev_token",
         auth_type="dev_token",
         data_scope={"tenant_id": tenant_id},
     )
 
 
 def _is_production() -> bool:
-    return os.getenv("APP_ENV", "development").strip().lower() in PRODUCTION_ENVS
+    return settings.app_env.strip().lower() in PRODUCTION_ENVS
+
+
+def _dev_tokens_allowed() -> bool:
+    return settings.auth_allow_dev_tokens and not _is_production()

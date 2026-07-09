@@ -13,7 +13,7 @@ from app.persistence.models import AgentTrace  # noqa: E402
 from main import app  # noqa: E402
 
 
-AUTH_HEADER = {"Authorization": "Bearer dev:trace_user:tenant_demo:user"}
+AUTH_HEADER = {"Authorization": "Bearer demo-user-key"}
 
 
 class FakeAgent:

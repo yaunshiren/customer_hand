@@ -4,7 +4,12 @@ from fastapi import APIRouter, Request
 
 from app.core.exceptions import BadRequestError
 from app.core.trace import run_with_trace, trace_id_from_request, trace_scope
-from app.entry.guard import guard_eval_rag, guard_knowledge_reindex
+from app.entry.guard import (
+    enforce_knowledge_reindex_rate_limit,
+    guard_eval_rag,
+    guard_knowledge_reindex,
+)
+from app.entry.idempotency import run_request_with_idempotency
 from app.rag.citation import CitationBuilder
 from app.rag.reindex import get_index_status, rebuild_index
 from app.rag.retriever import normalize_rag_backend
@@ -58,15 +63,20 @@ async def knowledge_status(request: Request):
 
 @router.post("/api/knowledge/reindex")
 async def knowledge_reindex(request: Request):
-    guard_knowledge_reindex(request)
+    principal = guard_knowledge_reindex(request)
     with trace_scope(trace_id_from_request(request)):
-        if normalize_rag_backend(settings.rag_backend) != "chroma":
-            raise BadRequestError(
-                "RAG_BACKEND must be chroma to rebuild vector index. "
-                "Set RAG_BACKEND=chroma in .env and restart."
-            )
+        async def execute_reindex() -> dict[str, object]:
+            enforce_knowledge_reindex_rate_limit(request, principal)
+            if normalize_rag_backend(settings.rag_backend) != "chroma":
+                raise BadRequestError(
+                    "RAG_BACKEND must be chroma to rebuild vector index. "
+                    "Set RAG_BACKEND=chroma in .env and restart."
+                )
+            return await run_with_trace(request, rebuild_index)
 
-        def run_reindex() -> dict[str, object]:
-            return rebuild_index()
-
-        return await run_with_trace(request, run_reindex)
+        return await run_request_with_idempotency(
+            request,
+            principal,
+            "admin_reindex",
+            execute_reindex,
+        )

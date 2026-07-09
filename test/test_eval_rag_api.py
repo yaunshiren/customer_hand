@@ -12,7 +12,7 @@ from main import app
 
 
 client = TestClient(app)
-AUTH_EVALUATOR = {"Authorization": "Bearer dev:evaluator_001:tenant_demo:evaluator"}
+AUTH_EVALUATOR = {"Authorization": "Bearer demo-evaluator-key"}
 
 
 @dataclass

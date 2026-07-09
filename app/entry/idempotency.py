@@ -12,7 +12,7 @@ from typing import Any, Literal, TypeVar
 from fastapi import Request
 
 from app.core.exceptions import BadRequestError, ConflictError
-from app.entry.models import EntryTask
+from app.entry.models import EntryTask, Principal
 
 
 T = TypeVar("T")
@@ -20,6 +20,7 @@ IdempotencyBeginStatus = Literal["started", "replay", "in_progress", "conflict"]
 
 REQUIRED_IDEMPOTENCY_SCENARIOS = {
     "tool",
+    "tool_write",
     "ticket",
     "create_ticket",
     "invoice",
@@ -28,6 +29,12 @@ REQUIRED_IDEMPOTENCY_SCENARIOS = {
     "async_task",
     "job",
     "webhook",
+}
+HIGH_RISK_CAPABILITIES = {
+    "ticket",
+    "invoice",
+    "tool_write",
+    "admin_reindex",
 }
 
 
@@ -110,6 +117,71 @@ async def run_with_idempotency(
         return await _maybe_await(handler())
 
     request_hash = request_hash_for_task(task, request)
+    return await _run_idempotent(
+        key=key,
+        request_hash=request_hash,
+        handler=handler,
+        store=store,
+    )
+
+
+async def run_request_with_idempotency(
+    request: Request,
+    principal: Principal,
+    capability: str,
+    handler: Callable[[], Awaitable[T] | T],
+    *,
+    store: IdempotencyStore | None = None,
+) -> T:
+    key = require_idempotency_key(request, capability=capability)
+    request_hash = request_hash_for_capability(
+        request,
+        principal=principal,
+        capability=capability,
+    )
+    return await _run_idempotent(
+        key=key,
+        request_hash=request_hash,
+        handler=handler,
+        store=store,
+    )
+
+
+def require_idempotency_key(request: Request, *, capability: str) -> str:
+    key = str(request.headers.get("idempotency-key") or "").strip()
+    if key:
+        return key
+    raise BadRequestError(
+        "idempotency key is required",
+        details={"capability": capability},
+    )
+
+
+def request_hash_for_capability(
+    request: Request,
+    *,
+    principal: Principal,
+    capability: str,
+) -> str:
+    body = {
+        "method": request.method.upper(),
+        "path": request.url.path,
+        "query": str(request.url.query),
+        "tenant_id": principal.tenant_id,
+        "principal_id": principal.principal_id,
+        "capability": str(capability).strip().lower(),
+    }
+    encoded = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+async def _run_idempotent(
+    *,
+    key: str,
+    request_hash: str,
+    handler: Callable[[], Awaitable[T] | T],
+    store: IdempotencyStore | None,
+) -> T:
     active_store = store or _default_store
     status, record = active_store.begin(key, request_hash)
 
@@ -160,11 +232,12 @@ def request_hash_for_task(task: EntryTask, request: Request) -> str:
 
 def requires_idempotency(task: EntryTask) -> bool:
     scenario = str(task.scenario or "").strip().lower()
+    capability = str(task.capability or "").strip().lower()
     if task.source in {"webhook", "scheduler"}:
         return True
     if scenario in REQUIRED_IDEMPOTENCY_SCENARIOS:
         return True
-    return task.capability == "tool"
+    return capability == "tool" or capability in HIGH_RISK_CAPABILITIES
 
 
 def reset_idempotency_store() -> None:

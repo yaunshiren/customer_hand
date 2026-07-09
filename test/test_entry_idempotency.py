@@ -26,14 +26,22 @@ def _request(path: str = "/api/messages") -> Request:
     )
 
 
-def _task(*, text: str = "hello", key: str | None = "idem-1", scenario: str = "chat") -> EntryTask:
-    capability = "tool" if scenario in {"ticket", "invoice", "tool"} else "chat"
+def _task(
+    *,
+    text: str = "hello",
+    key: str | None = "idem-1",
+    scenario: str = "chat",
+    capability: str | None = None,
+) -> EntryTask:
+    resolved_capability = capability or (
+        "tool" if scenario in {"ticket", "invoice", "tool", "tool_write"} else "chat"
+    )
     return EntryTask(
         trace_id="trace-1",
         request_id="req-1",
         source="api",
         scenario=scenario,
-        capability=capability,
+        capability=resolved_capability,
         principal=Principal(user_id="u1", tenant_id="tenant_a", roles=["user"], auth_type="dev_token"),
         sender_id="u1",
         conversation_id="c1",
@@ -68,6 +76,44 @@ def test_idempotency_same_key_different_hash_returns_conflict() -> None:
         asyncio.run(run_with_idempotency(_task(text="different"), _request(), lambda: {"ok": True}, store=store))
 
 
-def test_idempotency_required_for_ticket_scenario() -> None:
+@pytest.mark.parametrize(
+    ("scenario", "capability"),
+    [
+        ("ticket", "tool"),
+        ("invoice", "tool"),
+        ("tool_write", "tool"),
+        ("chat", "ticket"),
+        ("chat", "invoice"),
+        ("chat", "tool_write"),
+        ("chat", "admin_reindex"),
+    ],
+)
+def test_idempotency_required_for_high_risk_entry(
+    scenario: str,
+    capability: str,
+) -> None:
     with pytest.raises(BadRequestError):
-        asyncio.run(run_with_idempotency(_task(key=None, scenario="ticket"), _request(), lambda: {"ok": True}))
+        asyncio.run(
+            run_with_idempotency(
+                _task(key=None, scenario=scenario, capability=capability),
+                _request(),
+                lambda: {"ok": True},
+            )
+        )
+
+
+def test_normal_chat_text_does_not_require_idempotency_by_keyword() -> None:
+    result = asyncio.run(
+        run_with_idempotency(
+            _task(
+                text="What is the invoice policy?",
+                key=None,
+                scenario="chat",
+                capability="chat",
+            ),
+            _request(),
+            lambda: {"ok": True},
+        )
+    )
+
+    assert result == {"ok": True}

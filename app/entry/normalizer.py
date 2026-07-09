@@ -13,7 +13,15 @@ from app.entry.security import build_security_flags
 
 
 VALID_SOURCES = {"web", "app", "api", "webhook", "scheduler"}
-TOOL_SCENARIOS = {"tool", "invoice", "ticket", "create_invoice", "create_ticket", "payment"}
+TOOL_SCENARIOS = {
+    "tool",
+    "tool_write",
+    "invoice",
+    "ticket",
+    "create_invoice",
+    "create_ticket",
+    "payment",
+}
 
 
 def normalize_message_request(

@@ -16,7 +16,8 @@ ENV/
 .env
 data/chroma/
 data/chroma_smoke/
-docs/
+docs/*
+!docs/entry_guard.md
 runs/
 
 # Logs

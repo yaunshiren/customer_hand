@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,8 +21,11 @@ class Settings(BaseSettings):
 
     app_name: str = Field(default="customer_hand")
     app_version: str = Field(default="0.1.0")
+    app_env: str = Field(default="development")
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=8000)
+    api_key_principals: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    auth_allow_dev_tokens: bool = Field(default=True)
     llm_enabled: bool = Field(default=False)
     flow_dir: Path = Field(default=DEFAULT_FLOW_DIR)
     knowledge_dir: Path = Field(default=DEFAULT_KNOWLEDGE_DIR)
