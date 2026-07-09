@@ -69,3 +69,8 @@ class ForbiddenError(AppError):
 class RateLimitError(AppError):
     status_code = 429
     error_code = "rate_limited"
+
+
+class IdempotencyBackendUnavailableError(AppError):
+    status_code = 503
+    error_code = "idempotency_backend_unavailable"

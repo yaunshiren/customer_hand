@@ -103,17 +103,92 @@ trace、错误响应或测试快照。旧 dev token 仅在非生产环境且
 tenant_id + principal_id + scenario + capability + idempotency_key
 ```
 
+Redis 中的最终 key 使用以下结构：
+
+```text
+customer_hand:idempotency:v1:
+  {sha256(tenant_id)}:
+  {sha256(principal_id)}:
+  {normalized_scenario}:
+  {normalized_capability}:
+  {sha256(idempotency_key)}
+```
+
+`scenario` 和 `capability` 只允许小写字母、数字、下划线、点和短横线；其他字符会被
+安全归一化，并附加原值摘要避免归一化碰撞。tenant、principal 和调用方提供的
+idempotency key 不以明文写入 Redis key。
+
+消息入口的 `request_hash` 只包含以下稳定字段：
+
+- HTTP method、path；
+- tenant_id、principal_id；
+- source、scenario、capability；
+- sender_id、conversation_id；
+- normalized_text；
+- 递归过滤易变和敏感字段后的稳定 metadata。
+
+knowledge reindex 的 `request_hash` 只包含：
+
+- HTTP method、path、排序后的安全 query 参数；
+- tenant_id、principal_id；
+- scenario、capability。
+
+hash 输入明确排除 trace_id、request_id、created_at、updated_at、timestamp、
+X-Trace-Id、X-Request-Id、Authorization、API Key 和 idempotency key。这些字段不会
+造成相同业务请求重试时误判 conflict。
+
+Redis value：
+
+```json
+{
+  "request_hash": "<sha256>",
+  "reservation_id": "<opaque lease id>",
+  "status": "in_progress",
+  "response_snapshot": null,
+  "created_at": 1780000000.0,
+  "expires_at": 1780086400.0
+}
+```
+
+完成后 `status` 变为 `completed`，并写入经过安全裁剪和脱敏的必要业务响应快照。
+value 不保存请求正文、认证 Header、API Key、完整上下文、工具原始参数或未脱敏 PII。
+`reservation_id` 是不含业务信息的内部租约标识，避免 TTL 过期后的旧请求误完成或删除
+新占位。
+
 幂等结果：
 
 - `first_seen`：首次请求，继续执行。
 - `replay`：相同 key 和相同请求摘要，返回上次结果。
 - `conflict`：相同 key 但请求摘要不同，拒绝执行。
+- `in_progress`：相同 key 和摘要仍在执行，返回 409，避免并发重复执行。
 
-生产化建议：
+状态码与错误码：
 
-- 本地开发可用内存实现。
-- 多实例部署应使用 Redis 或 MySQL 唯一索引。
-- TTL 应按业务风险配置。
+- different hash：`409 idempotency_conflict`；
+- same hash + in progress：`409 idempotency_in_progress`；
+- Redis 不可用：`503 idempotency_backend_unavailable`。
+
+Redis 使用 Lua 原子完成首次占位、状态判断、完成快照和条件删除。`completed` replay
+只读取 `response_snapshot`，不会再次执行 Agent、Tool、MySQL 写操作或 reindex。
+TTL 默认 86400 秒，从 first_seen 开始计时，过期后同一 key 可重新提交。
+
+配置示例：
+
+```env
+IDEMPOTENCY_BACKEND=redis
+IDEMPOTENCY_TTL_SECONDS=86400
+IDEMPOTENCY_KEY_PREFIX=customer_hand:idempotency:v1
+REDIS_URL=redis://127.0.0.1:6379/0
+```
+
+本地 Python 使用宿主机端口映射 `redis://127.0.0.1:6379/0`；API 与名为 `redis`
+的服务位于同一个 Docker Compose 网络时使用 `redis://redis:6379/0`。本 PR 不修改
+compose 文件，部署侧需要提供对应 Redis 服务或外部地址。
+
+`memory` 仅适合本地测试或单实例演示，不适合多实例生产部署。redis 模式连接失败时
+采取 fail-closed 策略并返回标准 503，不会静默降级到 memory。默认单元测试使用
+FakeRedisClient 验证协议和状态转换，不要求本机运行 Redis。真实 Redis 测试标记为
+`integration`，仅在 `RUN_REDIS_INTEGRATION=1` 时运行。
 
 ## 7. 限流策略
 
@@ -181,7 +256,9 @@ Prompt Injection 风险示例：
 ## 10. 已知限制与后续改造
 
 - API Key 来自静态配置，尚无数据库管理、轮换、吊销和过期能力。
-- 限流与幂等仍为进程内存实现，不支持多实例共享。
+- 限流仍为进程内存实现，不支持多实例共享；幂等已支持 Redis 共享存储。
+- Redis 与 MySQL 之间不是同一个事务，仍存在业务写入完成但幂等完成快照写入失败的
+  极小故障窗口；当前会保留 in_progress 占位，避免立即重复写入。
 - tracker 查询接口当前保持公开，可能泄露会话状态；后续应增加 owner/admin 约束，
   并在启用前评估现有调试和评测调用方。
 - 当前幂等基于入口 scenario/capability；Tool 级幂等留待 Skill Runtime 收口。

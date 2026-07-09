@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 os.environ["LLM_ENABLED"] = "false"
 
 from app.agent.agent import Agent  # noqa: E402
+from app.core.exceptions import IdempotencyBackendUnavailableError  # noqa: E402
 from app.core.tracker_store import InMemoryTrackerStore  # noqa: E402
 from app.entry.idempotency import reset_idempotency_store  # noqa: E402
 from app.entry.models import EntryTask, Principal, SecurityFlags  # noqa: E402
@@ -205,7 +206,55 @@ def test_idempotency_key_conflict_returns_409(api_state) -> None:
     second = client.post("/api/messages", headers=headers, json={"sender_id": "u1", "message": "different"})
 
     assert first.status_code == 200
-    _assert_error_shape(second, status_code=409, error_code="conflict")
+    _assert_error_shape(second, status_code=409, error_code="idempotency_conflict")
+
+
+def test_idempotency_backend_unavailable_returns_standard_503(
+    api_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UnavailableStore:
+        async def begin(self, *args, **kwargs):
+            raise IdempotencyBackendUnavailableError("idempotency backend is unavailable")
+
+    monkeypatch.setattr(app.state, "idempotency_store", UnavailableStore())
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/messages",
+        headers={**AUTH_USER, "Idempotency-Key": "idem-unavailable"},
+        json={"sender_id": "u1", "message": "create ticket", "scenario": "ticket"},
+    )
+
+    _assert_error_shape(
+        response,
+        status_code=503,
+        error_code="idempotency_backend_unavailable",
+    )
+
+
+def test_idempotency_in_progress_returns_distinct_standard_409(
+    api_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class InProgressStore:
+        async def begin(self, *args, **kwargs):
+            return "in_progress", None
+
+    monkeypatch.setattr(app.state, "idempotency_store", InProgressStore())
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/messages",
+        headers={**AUTH_USER, "Idempotency-Key": "idem-in-progress"},
+        json={"sender_id": "u1", "message": "create ticket", "scenario": "ticket"},
+    )
+
+    _assert_error_shape(
+        response,
+        status_code=409,
+        error_code="idempotency_in_progress",
+    )
 
 
 def test_tool_scenario_requires_idempotency_key(api_state) -> None:

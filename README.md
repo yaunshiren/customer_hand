@@ -161,6 +161,30 @@ TICKET_STORE_BACKEND=mysql
 主键，`ticket_id` 是兼容 Agent 的稳定系统 ID，`ticket_no` 是返回给用户并供
 `query_ticket_status` 查询的业务工单号。部署新版本前需执行 `alembic upgrade head`。
 
+多实例或准生产部署应把入口幂等切换为共享 Redis：
+
+```env
+IDEMPOTENCY_BACKEND=redis
+IDEMPOTENCY_TTL_SECONDS=86400
+REDIS_URL=redis://127.0.0.1:6379/0
+```
+
+本地 Python 进程通过宿主机映射访问 `redis://127.0.0.1:6379/0`；如果 API 和名为
+`redis` 的 Redis 服务运行在同一个 Docker Compose 网络内，则使用
+`redis://redis:6379/0`。当前 compose 文件不新增 Redis 服务，需要部署环境自行提供。
+
+本地 pytest 会在 settings 初始化前强制使用 `memory`，不依赖 Redis。memory 后端只适合
+单进程测试或演示，不适合多实例生产部署。配置为 redis 后若 Redis 不可用，入口会
+fail-closed 返回 `503 idempotency_backend_unavailable`，不会静默降级到进程内存。
+`REDIS_URL` 若包含密码，只能放在本地环境变量或部署平台 Secret 中，不要提交到仓库。
+
+真实 Redis 冒烟测试默认跳过；显式执行方式：
+
+```powershell
+$env:RUN_REDIS_INTEGRATION="1"
+pytest -q test/test_redis_idempotency_integration.py
+```
+
 ---
 
 ## API 快速验证

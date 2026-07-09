@@ -79,4 +79,6 @@ async def knowledge_reindex(request: Request):
             principal,
             "admin_reindex",
             execute_reindex,
+            scenario="admin",
+            store=request.app.state.idempotency_store,
         )

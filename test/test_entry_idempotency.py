@@ -6,7 +6,12 @@ import pytest
 from starlette.requests import Request
 
 from app.core.exceptions import BadRequestError, ConflictError
-from app.entry.idempotency import IdempotencyStore, run_with_idempotency
+from app.entry.idempotency import (
+    IdempotencyStore,
+    request_hash_for_task,
+    run_with_idempotency,
+)
+from app.entry.idempotency_store import IdempotencyScope
 from app.entry.models import EntryTask, Principal
 
 
@@ -74,6 +79,68 @@ def test_idempotency_same_key_different_hash_returns_conflict() -> None:
 
     with pytest.raises(ConflictError):
         asyncio.run(run_with_idempotency(_task(text="different"), _request(), lambda: {"ok": True}, store=store))
+
+
+def test_same_hash_while_request_is_in_progress_has_distinct_error_code() -> None:
+    store = IdempotencyStore()
+    task = _task()
+    request = _request()
+    request_hash = request_hash_for_task(task, request)
+    scope = IdempotencyScope(
+        tenant_id=task.principal.tenant_id,
+        principal_id=task.principal.principal_id,
+        scenario=task.scenario,
+        capability=task.capability,
+        idempotency_key=task.idempotency_key or "",
+    )
+    asyncio.run(store.begin(scope, request_hash))
+
+    with pytest.raises(ConflictError) as exc_info:
+        asyncio.run(
+            run_with_idempotency(
+                task,
+                request,
+                lambda: {"should_not_run": True},
+                store=store,
+            )
+        )
+
+    assert exc_info.value.error_code == "idempotency_in_progress"
+
+
+def test_request_hash_excludes_ephemeral_and_sensitive_fields() -> None:
+    first = _task().model_copy(
+        update={
+            "trace_id": "trace-1",
+            "request_id": "request-1",
+            "metadata": {
+                "trace_id": "metadata-trace-1",
+                "timestamp": "2026-07-09T10:00:00Z",
+                "authorization": "Bearer secret-a",
+                "api_key": "secret-a",
+                "business_flag": "stable",
+            },
+        }
+    )
+    second = first.model_copy(
+        update={
+            "trace_id": "trace-2",
+            "request_id": "request-2",
+            "metadata": {
+                "trace_id": "metadata-trace-2",
+                "timestamp": "2026-07-09T10:01:00Z",
+                "authorization": "Bearer secret-b",
+                "api_key": "secret-b",
+                "business_flag": "stable",
+            },
+        }
+    )
+
+    assert request_hash_for_task(first, _request()) == request_hash_for_task(second, _request())
+    assert request_hash_for_task(first, _request()) != request_hash_for_task(
+        second.model_copy(update={"normalized_text": "different"}),
+        _request(),
+    )
 
 
 @pytest.mark.parametrize(

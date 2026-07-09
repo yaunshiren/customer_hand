@@ -17,6 +17,7 @@ from app.core.flow_loader import FlowLoader
 from app.core.logging import configure_logging
 from app.core.trace import new_trace_id
 from app.core.tracker_store import InMemoryTrackerStore
+from app.entry.idempotency import close_idempotency_store, get_idempotency_store
 from app.persistence.trace_recorder import AgentTraceRecorder
 from app.settings import settings
 
@@ -27,11 +28,14 @@ VERSION = settings.app_version
 
 
 @asynccontextmanager
-async def app_lifespan(_: FastAPI):
+async def app_lifespan(app: FastAPI):
     configure_logging(settings.log_level)
     logger.info("service.start name=%s version=%s", SERVICE_NAME, VERSION)
-    yield
-    logger.info("service.stop name=%s", SERVICE_NAME)
+    try:
+        yield
+    finally:
+        await close_idempotency_store(app.state.idempotency_store)
+        logger.info("service.stop name=%s", SERVICE_NAME)
 
 
 async def trace_header_middleware(request: Request, call_next):
@@ -75,6 +79,7 @@ def create_app() -> FastAPI:
     app.state.tracker_store = tracker_store
     app.state.kb_retriever = agent.knowledge_answerer.retriever
     app.state.trace_recorder = AgentTraceRecorder()
+    app.state.idempotency_store = get_idempotency_store()
 
     register_middleware(app)
     register_exception_handlers(app)

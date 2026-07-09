@@ -11,7 +11,7 @@ from fastapi import Request
 from app.api.schemas import MessageRequest, MessageResponse
 from app.core.trace import run_with_trace, trace_id_from_request, trace_scope
 from app.entry.guard import prepare_message_task
-from app.entry.idempotency import run_with_idempotency
+from app.entry.idempotency import run_with_idempotency, safe_response_snapshot
 from app.entry.models import EntryTask
 from app.persistence.trace_recorder import AgentTraceRecorder
 
@@ -105,7 +105,23 @@ async def handle_idempotency(
     request: Request,
     execute_request: Callable[[], Awaitable[list[MessageResponse]]],
 ) -> list[MessageResponse]:
-    return await run_with_idempotency(task, request, execute_request)
+    return await run_with_idempotency(
+        task,
+        request,
+        execute_request,
+        store=request.app.state.idempotency_store,
+        snapshot_encoder=lambda responses: safe_response_snapshot(
+            responses,
+            secrets=(task.raw_text, task.normalized_text),
+        ),
+        snapshot_decoder=_decode_message_response_snapshot,
+    )
+
+
+def _decode_message_response_snapshot(value: Any) -> list[MessageResponse]:
+    if not isinstance(value, list):
+        raise ValueError("message response snapshot must be a list")
+    return [MessageResponse.model_validate(item) for item in value]
 
 
 def record_agent_trace_start(
