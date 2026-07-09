@@ -20,7 +20,7 @@ router = APIRouter()
 
 @router.get("/api/eval/rag")
 async def eval_rag(request: Request, question: str, top_k: int = 5):
-    guard_eval_rag(request)
+    await guard_eval_rag(request)
     with trace_scope(trace_id_from_request(request)):
         text = question.strip()
         if not text:
@@ -66,7 +66,7 @@ async def knowledge_reindex(request: Request):
     principal = guard_knowledge_reindex(request)
     with trace_scope(trace_id_from_request(request)):
         async def execute_reindex() -> dict[str, object]:
-            enforce_knowledge_reindex_rate_limit(request, principal)
+            await enforce_knowledge_reindex_rate_limit(request, principal)
             if normalize_rag_backend(settings.rag_backend) != "chroma":
                 raise BadRequestError(
                     "RAG_BACKEND must be chroma to rebuild vector index. "

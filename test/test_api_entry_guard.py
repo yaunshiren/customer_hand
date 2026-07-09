@@ -9,7 +9,10 @@ from fastapi.testclient import TestClient
 os.environ["LLM_ENABLED"] = "false"
 
 from app.agent.agent import Agent  # noqa: E402
-from app.core.exceptions import IdempotencyBackendUnavailableError  # noqa: E402
+from app.core.exceptions import (  # noqa: E402
+    IdempotencyBackendUnavailableError,
+    RateLimitBackendUnavailableError,
+)
 from app.core.tracker_store import InMemoryTrackerStore  # noqa: E402
 from app.entry.idempotency import reset_idempotency_store  # noqa: E402
 from app.entry.models import EntryTask, Principal, SecurityFlags  # noqa: E402
@@ -181,6 +184,32 @@ def test_authenticated_api_messages_rate_limit_returns_429(api_state) -> None:
 
     payload = _assert_error_shape(response, status_code=429, error_code="rate_limited")
     assert payload["details"]["retry_after_seconds"] >= 1
+    assert payload["retry_after"] == payload["details"]["retry_after_seconds"]
+    assert response.headers["Retry-After"] == str(payload["retry_after"])
+
+
+def test_rate_limit_backend_unavailable_returns_standard_503(
+    api_state,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UnavailableRateLimiter:
+        async def check(self, *args, **kwargs):
+            raise RateLimitBackendUnavailableError("rate limit backend is unavailable")
+
+    monkeypatch.setattr(app.state, "rate_limiter", UnavailableRateLimiter())
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/messages",
+        headers=AUTH_USER,
+        json={"sender_id": "u1", "message": "hello"},
+    )
+
+    _assert_error_shape(
+        response,
+        status_code=503,
+        error_code="rate_limit_backend_unavailable",
+    )
 
 
 def test_idempotency_replays_same_response(api_state) -> None:

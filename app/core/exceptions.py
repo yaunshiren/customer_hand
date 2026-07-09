@@ -74,3 +74,8 @@ class RateLimitError(AppError):
 class IdempotencyBackendUnavailableError(AppError):
     status_code = 503
     error_code = "idempotency_backend_unavailable"
+
+
+class RateLimitBackendUnavailableError(AppError):
+    status_code = 503
+    error_code = "rate_limit_backend_unavailable"

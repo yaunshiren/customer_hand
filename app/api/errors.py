@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.core.exceptions import AppError
+from app.core.exceptions import AppError, RateLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,16 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
         if exc.details:
             payload["details"] = exc.details
-        return JSONResponse(status_code=exc.status_code, content=payload)
+        headers: dict[str, str] = {}
+        if isinstance(exc, RateLimitError):
+            retry_after = max(1, int(exc.details.get("retry_after_seconds") or 1))
+            payload["retry_after"] = retry_after
+            headers["Retry-After"] = str(retry_after)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=payload,
+            headers=headers,
+        )
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(

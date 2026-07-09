@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 os.environ["TICKET_STORE_BACKEND"] = "memory"
 # Default pytest must not require an external Redis service.
 os.environ["IDEMPOTENCY_BACKEND"] = "memory"
+os.environ["RATE_LIMIT_BACKEND"] = "memory"
 
 from app.settings import settings
 
@@ -69,6 +70,7 @@ def demo_api_key_config(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "auth_allow_dev_tokens", True)
     monkeypatch.setattr(settings, "ticket_store_backend", "memory")
     monkeypatch.setattr(settings, "idempotency_backend", "memory")
+    monkeypatch.setattr(settings, "rate_limit_backend", "memory")
 
 
 @pytest.fixture

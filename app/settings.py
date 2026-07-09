@@ -47,6 +47,18 @@ class Settings(BaseSettings):
     idempotency_ttl_seconds: int = Field(default=86400, ge=1, le=2592000)
     idempotency_key_prefix: str = Field(default="customer_hand:idempotency:v1", min_length=1)
     redis_url: str = Field(default="redis://127.0.0.1:6379/0", min_length=1)
+    rate_limit_backend: Literal["memory", "redis"] = Field(default="memory")
+    rate_limit_key_prefix: str = Field(default="customer_hand:rate_limit:v1", min_length=1)
+    rate_limit_chat_capacity: int = Field(default=30, ge=1)
+    rate_limit_chat_window_seconds: int = Field(default=60, ge=1)
+    rate_limit_tool_capacity: int = Field(default=5, ge=1)
+    rate_limit_tool_window_seconds: int = Field(default=60, ge=1)
+    rate_limit_rag_eval_capacity: int = Field(default=10, ge=1)
+    rate_limit_rag_eval_window_seconds: int = Field(default=60, ge=1)
+    rate_limit_admin_reindex_capacity: int = Field(default=1, ge=1)
+    rate_limit_admin_reindex_window_seconds: int = Field(default=3600, ge=1)
+    rate_limit_anonymous_capacity: int = Field(default=10, ge=1)
+    rate_limit_anonymous_window_seconds: int = Field(default=60, ge=1)
     local_embedding_query_instruction: str = Field(
         default="为这个句子生成表示以用于检索相关文章："
     )
@@ -74,6 +86,14 @@ class Settings(BaseSettings):
         if v.is_absolute():
             return v.resolve()
         return (PROJECT_ROOT / v).resolve()
+
+    @field_validator("rate_limit_key_prefix")
+    @classmethod
+    def _validate_rate_limit_key_prefix(cls, value: str) -> str:
+        prefix = value.strip()
+        if not prefix.lower().startswith("customer_hand:"):
+            raise ValueError("rate_limit_key_prefix must start with customer_hand:")
+        return prefix
 
     @model_validator(mode="after")
     def _validate_memory_config(self) -> Settings:

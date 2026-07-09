@@ -18,6 +18,7 @@ from app.core.logging import configure_logging
 from app.core.trace import new_trace_id
 from app.core.tracker_store import InMemoryTrackerStore
 from app.entry.idempotency import close_idempotency_store, get_idempotency_store
+from app.entry.rate_limit import close_rate_limiter, get_rate_limiter
 from app.persistence.trace_recorder import AgentTraceRecorder
 from app.settings import settings
 
@@ -34,6 +35,7 @@ async def app_lifespan(app: FastAPI):
     try:
         yield
     finally:
+        await close_rate_limiter(app.state.rate_limiter)
         await close_idempotency_store(app.state.idempotency_store)
         logger.info("service.stop name=%s", SERVICE_NAME)
 
@@ -80,6 +82,7 @@ def create_app() -> FastAPI:
     app.state.kb_retriever = agent.knowledge_answerer.retriever
     app.state.trace_recorder = AgentTraceRecorder()
     app.state.idempotency_store = get_idempotency_store()
+    app.state.rate_limiter = get_rate_limiter()
 
     register_middleware(app)
     register_exception_handlers(app)

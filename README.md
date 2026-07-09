@@ -178,11 +178,30 @@ REDIS_URL=redis://127.0.0.1:6379/0
 fail-closed 返回 `503 idempotency_backend_unavailable`，不会静默降级到进程内存。
 `REDIS_URL` 若包含密码，只能放在本地环境变量或部署平台 Secret 中，不要提交到仓库。
 
+多实例部署还应启用 Redis 分布式限流：
+
+```env
+RATE_LIMIT_BACKEND=redis
+RATE_LIMIT_KEY_PREFIX=customer_hand:rate_limit:v1
+RATE_LIMIT_CHAT_CAPACITY=30
+RATE_LIMIT_CHAT_WINDOW_SECONDS=60
+RATE_LIMIT_TOOL_CAPACITY=5
+RATE_LIMIT_TOOL_WINDOW_SECONDS=60
+RATE_LIMIT_RAG_EVAL_CAPACITY=10
+RATE_LIMIT_RAG_EVAL_WINDOW_SECONDS=60
+RATE_LIMIT_ADMIN_REINDEX_CAPACITY=1
+RATE_LIMIT_ADMIN_REINDEX_WINDOW_SECONDS=3600
+```
+
+限流复用 `REDIS_URL`：本机 Python 使用 `redis://127.0.0.1:6379/0`，Compose 网络内
+使用 `redis://redis:6379/0`。不要使用其他项目占用的 6380。Redis 限流后端不可用时
+返回 `503 rate_limit_backend_unavailable`，不会回退到进程内 memory。
+
 真实 Redis 冒烟测试默认跳过；显式执行方式：
 
 ```powershell
 $env:RUN_REDIS_INTEGRATION="1"
-pytest -q test/test_redis_idempotency_integration.py
+pytest -q test/test_redis_idempotency_integration.py test/test_redis_rate_limiter_integration.py
 ```
 
 ---

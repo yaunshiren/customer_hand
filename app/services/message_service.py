@@ -73,8 +73,8 @@ def _optional_float(value: Any) -> float | None:
         return None
 
 
-def prepare_entry_task(req: MessageRequest, request: Request) -> EntryTask:
-    return prepare_message_task(req, request)
+async def prepare_entry_task(req: MessageRequest, request: Request) -> EntryTask:
+    return await prepare_message_task(req, request)
 
 
 async def run_agent(task: EntryTask, request: Request) -> list[dict[str, object]]:
@@ -186,7 +186,7 @@ def record_agent_trace_error(
 async def process_message(req: MessageRequest, request: Request) -> list[MessageResponse]:
     trace_id = trace_id_from_request(request)
     started_at = time.perf_counter()
-    task = prepare_entry_task(req, request)
+    task = await prepare_entry_task(req, request)
     recorder: AgentTraceRecorder = request.app.state.trace_recorder
 
     with trace_scope(trace_id):

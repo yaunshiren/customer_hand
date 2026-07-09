@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from starlette.requests import Request
 
@@ -20,12 +22,16 @@ def _request(ip: str = "10.0.0.1") -> Request:
     )
 
 
+def _enforce(**kwargs) -> None:
+    asyncio.run(enforce_rate_limit_for_principal(**kwargs))
+
+
 def test_user_level_chat_rate_limit_returns_retry_after() -> None:
     limiter = InMemoryRateLimiter()
     principal = Principal(user_id="u1", tenant_id="tenant_a", roles=["user"], auth_type="dev_token")
 
     for _ in range(30):
-        enforce_rate_limit_for_principal(
+        _enforce(
             request=_request(),
             principal=principal,
             scenario="chat",
@@ -34,7 +40,7 @@ def test_user_level_chat_rate_limit_returns_retry_after() -> None:
         )
 
     with pytest.raises(RateLimitError) as exc:
-        enforce_rate_limit_for_principal(
+        _enforce(
             request=_request(),
             principal=principal,
             scenario="chat",
@@ -51,7 +57,7 @@ def test_tenant_level_reindex_rate_limit_is_shared_by_tenant() -> None:
     first = Principal(user_id="admin1", tenant_id="tenant_a", roles=["admin"], auth_type="dev_token")
     second = Principal(user_id="admin2", tenant_id="tenant_a", roles=["admin"], auth_type="dev_token")
 
-    enforce_rate_limit_for_principal(
+    _enforce(
         request=_request(),
         principal=first,
         scenario="admin/reindex",
@@ -60,7 +66,7 @@ def test_tenant_level_reindex_rate_limit_is_shared_by_tenant() -> None:
     )
 
     with pytest.raises(RateLimitError):
-        enforce_rate_limit_for_principal(
+        _enforce(
             request=_request(),
             principal=second,
             scenario="admin/reindex",
@@ -74,7 +80,7 @@ def test_anonymous_rate_limit_is_keyed_by_ip() -> None:
     principal = Principal()
 
     for _ in range(10):
-        enforce_rate_limit_for_principal(
+        _enforce(
             request=_request("10.0.0.9"),
             principal=principal,
             scenario="chat",
@@ -83,7 +89,7 @@ def test_anonymous_rate_limit_is_keyed_by_ip() -> None:
         )
 
     with pytest.raises(RateLimitError):
-        enforce_rate_limit_for_principal(
+        _enforce(
             request=_request("10.0.0.9"),
             principal=principal,
             scenario="chat",

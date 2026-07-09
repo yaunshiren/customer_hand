@@ -88,3 +88,33 @@ def test_admin_can_reindex_and_replay_with_same_idempotency_key() -> None:
     assert second.status_code == 200
     assert second.json() == first.json() == result
     assert rebuild.call_count == 1
+
+
+def test_admin_reindex_rate_limit_returns_retry_after() -> None:
+    result = {"status": "ok", "indexed": 3}
+    with (
+        patch.object(settings, "rag_backend", "chroma"),
+        patch("app.api.routes.knowledge.rebuild_index", return_value=result),
+    ):
+        first = client.post(
+            "/api/knowledge/reindex",
+            headers={
+                "Authorization": "Bearer demo-admin-key",
+                "Idempotency-Key": "knowledge-reindex-rate-1",
+            },
+        )
+        limited = client.post(
+            "/api/knowledge/reindex",
+            headers={
+                "Authorization": "Bearer demo-admin-key",
+                "Idempotency-Key": "knowledge-reindex-rate-2",
+            },
+        )
+
+    assert first.status_code == 200
+    assert limited.status_code == 429
+    payload = limited.json()
+    assert payload["error_code"] == "rate_limited"
+    assert payload["trace_id"]
+    assert payload["retry_after"] >= 1
+    assert limited.headers["Retry-After"] == str(payload["retry_after"])

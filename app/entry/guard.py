@@ -15,22 +15,28 @@ from app.entry.rate_limit import enforce_rate_limit, enforce_rate_limit_for_prin
 MESSAGE_ROLES = {"user", "evaluator", "admin"}
 
 
-def prepare_message_task(req: MessageRequest, request: Request) -> EntryTask:
+async def prepare_message_task(req: MessageRequest, request: Request) -> EntryTask:
     principal = authenticate_request(request)
     require_any_role(principal, MESSAGE_ROLES)
     task = normalize_message_request(req, request, principal=principal)
-    enforce_rate_limit(task, request)
+    await enforce_rate_limit(
+        task,
+        request,
+        limiter=request.app.state.rate_limiter,
+    )
     return task
 
 
-def guard_eval_rag(request: Request) -> Principal:
+async def guard_eval_rag(request: Request) -> Principal:
     principal = authenticate_request(request)
     require_any_role(principal, {"evaluator", "admin"})
-    enforce_rate_limit_for_principal(
+    await enforce_rate_limit_for_principal(
         request=request,
         principal=principal,
+        source="api",
         scenario="rag_eval",
         capability="rag",
+        limiter=request.app.state.rate_limiter,
     )
     return principal
 
@@ -47,10 +53,15 @@ def guard_knowledge_reindex(request: Request) -> Principal:
     return principal
 
 
-def enforce_knowledge_reindex_rate_limit(request: Request, principal: Principal) -> None:
-    enforce_rate_limit_for_principal(
+async def enforce_knowledge_reindex_rate_limit(
+    request: Request,
+    principal: Principal,
+) -> None:
+    await enforce_rate_limit_for_principal(
         request=request,
         principal=principal,
-        scenario="admin/reindex",
-        capability="admin",
+        source="api",
+        scenario="admin_reindex",
+        capability="admin_reindex",
+        limiter=request.app.state.rate_limiter,
     )
