@@ -119,7 +119,7 @@ class TraceEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     trace_id: str
-    agent: AgentTraceEvidence
+    agent: AgentTraceEvidence | None = None
     retrieval: list[RetrievalTraceEvidence] = Field(default_factory=list)
     tools: list[ToolTraceEvidence] = Field(default_factory=list)
     http: HttpEvidence

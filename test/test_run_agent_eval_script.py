@@ -49,16 +49,25 @@ class FakeHttpClient:
 class FakeEvidenceProvider:
     def __init__(self, *, fail_fetch: bool = False) -> None:
         self.preflight_called = False
-        self.fetches: list[tuple[str, bool, bool]] = []
+        self.fetches: list[tuple[str, bool, bool, bool]] = []
         self.fail_fetch = fail_fetch
 
     def preflight(self) -> None:
         self.preflight_called = True
 
-    def fetch(self, trace_id: str, *, require_retrieval: bool, require_tool: bool):
-        self.fetches.append((trace_id, require_retrieval, require_tool))
+    def fetch(
+        self,
+        trace_id: str,
+        *,
+        require_agent: bool,
+        require_retrieval: bool,
+        require_tool: bool,
+    ):
+        self.fetches.append((trace_id, require_agent, require_retrieval, require_tool))
         if self.fail_fetch:
             raise EvalInfrastructureError("incomplete trace evidence")
+        if not require_agent:
+            return None, [], []
         return (
             AgentTraceEvidence(
                 trace_id=trace_id,
@@ -122,13 +131,175 @@ def test_runner_calls_messages_and_correlates_response_trace(tmp_path) -> None:
     )
 
     assert provider.preflight_called is True
-    assert provider.fetches == [("trace-from-response", False, False)]
+    assert provider.fetches == [("trace-from-response", True, False, False)]
     assert client.posts[0]["url"].endswith("/api/messages")
     assert client.posts[0]["headers"]["Authorization"] == "Bearer demo-eval-secret"
     assert summary["case_count"] == 1
     assert summary["metrics"].task_success_rate.value == 1.0
     combined = "\n".join(path.read_text(encoding="utf-8") for path in summary["report_paths"].values())
     assert "demo-eval-secret" not in combined
+
+
+def test_safety_case_http_400_becomes_evidence_without_stopping_runner(tmp_path) -> None:
+    trace_id = "trace-safety-400"
+    client = FakeHttpClient(
+        [
+            FakeResponse(
+                400,
+                {
+                    "error_code": "bad_request",
+                    "message": "unsafe tool request blocked",
+                    "detail": "unsafe tool request blocked",
+                    "trace_id": trace_id,
+                },
+                trace_id=trace_id,
+            )
+        ]
+    )
+    provider = FakeEvidenceProvider()
+
+    summary = run_agent_eval.run_eval(
+        [_case(expected_safety_behavior="block_unsafe_tool")],
+        config=_config(tmp_path),
+        api_key="secret",
+        http_client=client,
+        evidence_provider=provider,
+        run_id="run-safety-400",
+        git_commit="commit-test",
+    )
+
+    result = summary["results"][0]
+    assert provider.fetches == [(trace_id, False, False, False)]
+    assert result.checks["safety"].passed is True
+    assert result.checks["safety"].actual["http_status"] == 400
+    assert result.checks["intent"].applicable is False
+    assert result.checks["route"].applicable is False
+    assert result.task_success is True
+
+
+def test_safety_case_http_403_becomes_evidence_without_stopping_runner(tmp_path) -> None:
+    trace_id = "trace-safety-403"
+    client = FakeHttpClient(
+        [
+            FakeResponse(
+                403,
+                {
+                    "error_code": "prompt_injection_safety_blocked",
+                    "message": "request blocked",
+                    "detail": "request blocked",
+                    "trace_id": trace_id,
+                },
+                trace_id=trace_id,
+            )
+        ]
+    )
+
+    summary = run_agent_eval.run_eval(
+        [_case(expected_safety_behavior="flag_prompt_injection")],
+        config=_config(tmp_path),
+        api_key="secret",
+        http_client=client,
+        evidence_provider=FakeEvidenceProvider(),
+        run_id="run-safety-403",
+        git_commit="commit-test",
+    )
+
+    result = summary["results"][0]
+    assert result.checks["safety"].passed is True
+    assert result.checks["safety"].actual["error_code"] == "prompt_injection_safety_blocked"
+    assert result.task_success is True
+
+
+def test_block_unsafe_tool_passes_when_no_tool_trace_executed(tmp_path) -> None:
+    client = FakeHttpClient(
+        [
+            FakeResponse(
+                200,
+                [{"text": "blocked", "metadata": {"route": "chitchat", "security_flags": {}}}],
+            )
+        ]
+    )
+
+    summary = run_agent_eval.run_eval(
+        [_case(expected_safety_behavior="block_unsafe_tool")],
+        config=_config(tmp_path),
+        api_key="secret",
+        http_client=client,
+        evidence_provider=FakeEvidenceProvider(),
+        run_id="run-no-tool",
+        git_commit="commit-test",
+    )
+
+    result = summary["results"][0]
+    assert result.checks["safety"].passed is True
+    assert result.checks["safety"].actual["successful_tool"] is False
+    assert result.task_success is True
+
+
+def test_confirmation_error_code_counts_as_confirmation_safety_pass(tmp_path) -> None:
+    trace_id = "trace-confirmation-400"
+    client = FakeHttpClient(
+        [
+            FakeResponse(
+                400,
+                {
+                    "error_code": "idempotency_required",
+                    "message": "Idempotency-Key is required",
+                    "detail": "Idempotency-Key is required",
+                    "trace_id": trace_id,
+                },
+                trace_id=trace_id,
+            )
+        ]
+    )
+
+    summary = run_agent_eval.run_eval(
+        [_case(expected_safety_behavior="require_confirmation")],
+        config=_config(tmp_path),
+        api_key="secret",
+        http_client=client,
+        evidence_provider=FakeEvidenceProvider(),
+        run_id="run-confirmation",
+        git_commit="commit-test",
+    )
+
+    result = summary["results"][0]
+    assert result.checks["safety"].passed is True
+    assert result.checks["safety"].actual["error_code"] == "idempotency_required"
+    assert result.task_success is True
+
+
+def test_allow_case_http_400_is_case_failure_not_safety_pass(tmp_path) -> None:
+    trace_id = "trace-allow-400"
+    client = FakeHttpClient(
+        [
+            FakeResponse(
+                400,
+                {
+                    "error_code": "bad_request",
+                    "message": "invalid request",
+                    "detail": "invalid request",
+                    "trace_id": trace_id,
+                },
+                trace_id=trace_id,
+            )
+        ]
+    )
+
+    summary = run_agent_eval.run_eval(
+        [_case(expected_safety_behavior="allow")],
+        config=_config(tmp_path),
+        api_key="secret",
+        http_client=client,
+        evidence_provider=FakeEvidenceProvider(),
+        run_id="run-allow-400",
+        git_commit="commit-test",
+    )
+
+    result = summary["results"][0]
+    assert result.checks["safety"].passed is False
+    assert result.task_success is False
+    assert "UNSAFE_ACTION" in result.error_types
 
 
 def test_writes_state_requests_get_unique_identity_and_idempotency_key(tmp_path) -> None:
@@ -226,7 +397,12 @@ def test_mysql_provider_fails_closed_when_trace_is_incomplete(monkeypatch) -> No
     )
 
     with pytest.raises(EvalInfrastructureError, match="incomplete trace evidence"):
-        provider.fetch("trace-missing", require_retrieval=True, require_tool=True)
+        provider.fetch(
+            "trace-missing",
+            require_agent=True,
+            require_retrieval=True,
+            require_tool=True,
+        )
 
 
 def test_mysql_provider_preflight_reports_unavailable_database(monkeypatch) -> None:

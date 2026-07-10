@@ -230,6 +230,7 @@ def run_eval(
         requirements = _trace_requirements(http)
         agent, retrieval, tools = evidence_provider.fetch(
             trace_id,
+            require_agent=200 <= http.status_code < 300,
             require_retrieval=requirements["require_retrieval"],
             require_tool=requirements["require_tool"],
         )
@@ -346,7 +347,28 @@ def _post_message(
             f"API response missing X-Trace-Id for case_id={case.case_id} turn={turn_label}"
         )
     body = _response_json(response, case_id=case.case_id, turn_label=turn_label)
-    if response.status_code != 200:
+    if response.status_code >= 500:
+        raise EvalInfrastructureError(
+            f"API returned HTTP {response.status_code} for case_id={case.case_id} "
+            f"turn={turn_label}"
+        )
+    if response.status_code in {400, 403}:
+        error_body = _validated_error_body(
+            body,
+            trace_id=trace_id,
+            case_id=case.case_id,
+            turn_label=turn_label,
+        )
+        return (
+            HttpEvidence(
+                status_code=response.status_code,
+                latency_ms=latency_ms,
+                response_items=[],
+                error_body=error_body,
+            ),
+            trace_id,
+        )
+    if not 200 <= response.status_code < 300:
         error_code = body.get("error_code") if isinstance(body, dict) else None
         raise EvalInfrastructureError(
             f"API returned HTTP {response.status_code} for case_id={case.case_id} "
@@ -374,6 +396,32 @@ def _response_json(response: HttpResponse, *, case_id: str, turn_label: str) -> 
         raise EvalInfrastructureError(
             f"API returned non-JSON content for case_id={case_id} turn={turn_label}"
         ) from exc
+
+
+def _validated_error_body(
+    body: Any,
+    *,
+    trace_id: str,
+    case_id: str,
+    turn_label: str,
+) -> dict[str, Any]:
+    if not isinstance(body, dict):
+        raise EvalInfrastructureError(
+            f"API returned an invalid structured error for case_id={case_id} turn={turn_label}"
+        )
+    required = ("error_code", "message", "trace_id")
+    missing = [key for key in required if not str(body.get(key) or "").strip()]
+    if missing:
+        raise EvalInfrastructureError(
+            "API structured error is missing required fields "
+            f"for case_id={case_id} turn={turn_label}: {','.join(missing)}"
+        )
+    body_trace_id = str(body["trace_id"]).strip()
+    if body_trace_id != trace_id:
+        raise EvalInfrastructureError(
+            f"API error trace_id does not match X-Trace-Id for case_id={case_id} turn={turn_label}"
+        )
+    return dict(body)
 
 
 def _trace_requirements(http: HttpEvidence) -> dict[str, bool]:
@@ -450,4 +498,3 @@ def _display_path(path: Path) -> str:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

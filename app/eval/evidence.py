@@ -23,9 +23,10 @@ class EvidenceProvider(Protocol):
         self,
         trace_id: str,
         *,
+        require_agent: bool,
         require_retrieval: bool,
         require_tool: bool,
-    ) -> tuple[AgentTraceEvidence, list[RetrievalTraceEvidence], list[ToolTraceEvidence]]: ...
+    ) -> tuple[AgentTraceEvidence | None, list[RetrievalTraceEvidence], list[ToolTraceEvidence]]: ...
 
 
 class MySQLEvidenceProvider:
@@ -50,9 +51,10 @@ class MySQLEvidenceProvider:
         self,
         trace_id: str,
         *,
+        require_agent: bool = True,
         require_retrieval: bool,
         require_tool: bool,
-    ) -> tuple[AgentTraceEvidence, list[RetrievalTraceEvidence], list[ToolTraceEvidence]]:
+    ) -> tuple[AgentTraceEvidence | None, list[RetrievalTraceEvidence], list[ToolTraceEvidence]]:
         clean_trace_id = str(trace_id or "").strip()
         if not clean_trace_id:
             raise EvalInfrastructureError("X-Trace-Id is empty; trace evidence cannot be correlated")
@@ -73,14 +75,16 @@ class MySQLEvidenceProvider:
                 f"retrieval_trace={len(retrieval)} tool_trace={len(tools)}"
             )
             complete = (
-                agent is not None
+                (not require_agent or agent is not None)
                 and (not require_retrieval or bool(retrieval))
                 and (not require_tool or bool(tools))
             )
             if complete:
                 return agent, retrieval, tools
             if time.monotonic() >= deadline:
-                requirements = ["agent_trace"]
+                requirements: list[str] = []
+                if require_agent:
+                    requirements.append("agent_trace")
                 if require_retrieval:
                     requirements.append("retrieval_trace")
                 if require_tool:
@@ -157,4 +161,3 @@ def _read_trace_bundle(
 
 def _dict_or_empty(value: object) -> dict[str, object]:
     return dict(value) if isinstance(value, dict) else {}
-
