@@ -19,6 +19,8 @@ data/chroma_smoke/
 docs/*
 !docs/entry_guard.md
 runs/
+reports/*
+!reports/README.md
 
 # Logs
 *.log

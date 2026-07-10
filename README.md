@@ -25,6 +25,7 @@
 - **RAG**：支持 `keyword`、`chroma`、`hybrid` 三种后端；`.env.example` 默认使用 Chroma 向量检索。
 - **业务能力**：售后/物流流程、模拟业务工具、工单流转、意图树、会话摘要和查询改写。
 - **Skill Runtime**：统一 Skill 注册、Pydantic v2 输入输出校验、角色/风险/幂等要求、超时重试、标准错误和脱敏 tool trace；首批迁移工单创建与状态查询。
+- **自动化 Eval**：真实调用 `/api/messages`，用响应头 `X-Trace-Id` 关联三类 trace，生成确定性指标、badcase 和 Codex handoff。
 - **观测与评测**：结构化日志、trace 记录、检索记录、工具调用记录、RAG 评测接口、MySQL/SQLAlchemy/Alembic 持久化。
 
 ---
@@ -39,6 +40,7 @@ customer_hand/
   app/
     api/                  响应模型、异常处理、inspect 页面模板
     entry/                入口鉴权、限流、幂等、标准化、安全检查
+    eval/                 Eval 契约、trace evidence、指标、badcase 与报告
     agent/                Agent 主流程与 graph 节点
     intent/               意图 taxonomy、分类、策略与 Prompt
     actions/              Action 注册与内置动作
@@ -56,8 +58,10 @@ customer_hand/
     flows/                业务流程 YAML
     intents/              客服意图配置
     knowledge/            RAG 知识文档与产品/政策/FAQ 资料
+    eval/                 Agent 回归评测 JSONL 数据集
   scripts/                评测、索引、演示脚本
   test/                   pytest 用例
+  reports/                本地生成报告（仅 README 被 Git 跟踪）
   alembic/                持久化表结构迁移
   docker-compose.yml      API + MySQL 本地容器编排
   requirements.txt
@@ -330,6 +334,39 @@ pytest -q
 ```cmd
 pytest test/test_api_basic.py -v
 ```
+
+---
+
+## Agent Eval 与 Badcase 闭环
+
+先验证数据集；该命令不需要 API、MySQL、Redis 或外部 eval 包：
+
+```cmd
+python scripts/run_agent_eval.py --validate-only
+```
+
+真实运行必须先启动 API，并确保 API 和 runner 使用同一个可访问的 trace MySQL。
+API Key 只能通过环境变量提供，不支持命令行参数：
+
+```cmd
+set EVAL_API_KEY=demo-user-key
+python scripts/run_agent_eval.py --base-url http://127.0.0.1:8000
+```
+
+建议基准回归使用 `LLM_ENABLED=false`、`RAG_BACKEND=keyword`，减少模型与向量服务波动。
+runner 会真实调用 `/api/messages`，以响应头 `X-Trace-Id` 查询 `agent_trace`、
+`retrieval_trace` 和 `tool_trace`。API、trace MySQL、API Key 或必要 trace 不完整时，
+runner 会退出且不生成本次报告。写操作 case 会使用独立 sender、conversation 和
+`Idempotency-Key`，并在报告中标记 `writes_state=true`。
+
+成功运行后生成：
+
+- `reports/eval_report.md`
+- `reports/eval_report.json`
+- `reports/badcases.jsonl`
+- `reports/codex_handoff.md`
+
+真实报告默认不提交 Git，具体隐私边界见 `reports/README.md`。
 
 ---
 

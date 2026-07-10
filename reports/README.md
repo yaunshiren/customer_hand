@@ -1,25 +1,17 @@
-# Reports
+# Eval Reports
 
-This directory stores generated evaluation artifacts.
+`python scripts/run_agent_eval.py` writes the following runtime artifacts here:
 
-Recommended files:
+- `eval_report.md`
+- `eval_report.json`
+- `badcases.jsonl`
+- `codex_handoff.md`
 
-- `eval_report.md`: human-readable eval report.
-- `eval_report.json`: machine-readable eval metrics.
-- `badcases.jsonl`: failed eval cases with error_type and trace evidence.
-- `codex_handoff.md`: focused handoff for Codex repair loop.
+Generated reports are intentionally ignored by Git because a real run can contain
+trace-linked operational evidence. Only this README is committed. Before sharing a
+report, review it for tenant data and other sensitive information even though the
+runner removes raw user input, full answers, authorization data, API keys, common PII,
+and raw tool parameters from report payloads.
 
-Typical loop:
-
-```bash
-python scripts/run_agent_eval.py
-python scripts/export_badcases.py
-python scripts/generate_codex_handoff.py --badcases reports/badcases.jsonl --output reports/codex_handoff.md
-```
-
-Then ask Codex:
-
-```text
-请使用 eval-badcase-loop skill，阅读 reports/codex_handoff.md。
-先给修改计划，不要直接改代码。
-```
+The handoff is review input for a later repair round. It does not authorize Codex or
+another agent to modify code automatically.
