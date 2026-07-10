@@ -14,6 +14,7 @@ from app.entry.guard import prepare_message_task
 from app.entry.idempotency import run_with_idempotency, safe_response_snapshot
 from app.entry.models import EntryTask
 from app.persistence.trace_recorder import AgentTraceRecorder
+from app.skills import context_from_entry_task, skill_context_scope
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,11 @@ async def prepare_entry_task(req: MessageRequest, request: Request) -> EntryTask
 
 async def run_agent(task: EntryTask, request: Request) -> list[dict[str, object]]:
     def handle() -> list[dict[str, object]]:
-        return request.app.state.agent.handle_task(task)
+        # The scope is created inside the worker thread used by run_with_trace.
+        # ContextVar.reset in the context manager's finally prevents worker-thread
+        # reuse from leaking a principal, tenant, or idempotency key across requests.
+        with skill_context_scope(context_from_entry_task(task)):
+            return request.app.state.agent.handle_task(task)
 
     return await run_with_trace(request, handle)
 

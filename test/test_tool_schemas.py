@@ -60,6 +60,14 @@ def test_create_invoice_schema_marks_confirmation_and_medium_risk() -> None:
     assert schema.risk_level == "medium"
 
 
+def test_create_ticket_schema_marks_skill_runtime_idempotency_requirement() -> None:
+    schema = get_tool_schema("create_ticket")
+
+    assert schema.risk_level == "medium"
+    assert schema.requires_idempotency is True
+    assert schema.to_prompt_schema()["requires_idempotency"] is True
+
+
 def test_prompt_tool_schema_shape_is_model_friendly() -> None:
     tools = list_prompt_tool_schemas()
     logistics = next(item for item in tools if item["tool_name"] == "query_logistics")

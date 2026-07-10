@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -10,8 +10,16 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from app.core.trace import get_trace_id
 from app.persistence.tool_recorder import record_tool_trace
 from app.settings import settings
-from app.tickets.models import Ticket
-from app.tickets.service import TicketNotFoundError, TicketService
+from app.skills import (
+    CreateTicketInput,
+    QueryTicketStatusInput,
+    SkillExecutionResult,
+    SkillExecutor,
+    build_default_registry,
+    current_skill_context,
+    legacy_compat_context,
+)
+from app.tickets.service import TicketService
 from app.tools.mock_store import MockCustomerServiceStore, MockToolError
 from app.tools.models import ToolCallResult, ToolError
 
@@ -42,28 +50,10 @@ class QueryLogisticsArgs(QueryOrderArgs):
     pass
 
 
-class CreateTicketArgs(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    category: str = Field(min_length=1, description="Ticket category, such as complaint or logistics.")
-    description: str = Field(min_length=1, description="Original user issue or a concise issue description.")
-    user_id: str = Field(min_length=1, description="User id used to associate the ticket with a customer.")
-
-    @field_validator("category", "description", "user_id")
-    @classmethod
-    def _validate_required_text(cls, value: str, info: Any) -> str:
-        return _clean_required_text(value, info.field_name)
-
-
-class QueryTicketStatusArgs(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ticket_no: str = Field(min_length=1, description="User-visible ticket number.")
-
-    @field_validator("ticket_no")
-    @classmethod
-    def _validate_ticket_no(cls, value: str) -> str:
-        return _clean_required_text(value, "ticket_no").upper()
+# Public aliases keep the legacy tools/schema import surface stable while validation
+# is owned by the Skill Runtime for the two migrated tools.
+CreateTicketArgs = CreateTicketInput
+QueryTicketStatusArgs = QueryTicketStatusInput
 
 
 class CreateInvoiceArgs(BaseModel):
@@ -88,7 +78,16 @@ class MockBusinessToolService:
     ) -> None:
         self.store = store or MockCustomerServiceStore()
         self.policy = policy or ToolExecutionPolicy()
-        self.ticket_service = ticket_service
+        self.ticket_service = ticket_service or TicketService()
+        self.skill_registry = build_default_registry(
+            ticket_service=self.ticket_service,
+            timeout_ms=max(1, int(self.policy.timeout_seconds * 1000)),
+            query_max_attempts=max(1, self.policy.max_retries + 1),
+        )
+        self.skill_executor = SkillExecutor(
+            self.skill_registry,
+            trace_recorder=record_tool_trace,
+        )
 
     def query_order(self, order_id: str, *, trace_id: str | None = None) -> ToolCallResult:
         return self._run(
@@ -116,15 +115,10 @@ class MockBusinessToolService:
         *,
         trace_id: str | None = None,
     ) -> ToolCallResult:
-        return self._run(
-            tool_name="create_ticket",
-            args_model=CreateTicketArgs,
-            raw_arguments={"category": category, "description": description, "user_id": user_id},
-            operation=self._create_ticket,
+        return self._run_skill(
+            skill_name="create_ticket",
+            arguments={"category": category, "description": description, "user_id": user_id},
             trace_id=trace_id,
-            max_retries_override=0,
-            metadata_source=settings.ticket_store_backend,
-            mock=settings.ticket_store_backend == "memory",
         )
 
     def query_ticket_status(
@@ -133,15 +127,31 @@ class MockBusinessToolService:
         *,
         trace_id: str | None = None,
     ) -> ToolCallResult:
-        return self._run(
-            tool_name="query_ticket_status",
-            args_model=QueryTicketStatusArgs,
-            raw_arguments={"ticket_no": ticket_no},
-            operation=self._query_ticket_status,
+        return self._run_skill(
+            skill_name="query_ticket_status",
+            arguments={"ticket_no": ticket_no},
             trace_id=trace_id,
-            metadata_source=settings.ticket_store_backend,
-            mock=settings.ticket_store_backend == "memory",
         )
+
+    def _run_skill(
+        self,
+        *,
+        skill_name: str,
+        arguments: dict[str, Any],
+        trace_id: str | None,
+    ) -> ToolCallResult:
+        context = current_skill_context()
+        if context is None:
+            context = legacy_compat_context(trace_id=trace_id or get_trace_id())
+        elif trace_id:
+            context = replace(context, trace_id=trace_id)
+
+        result = self.skill_executor.execute(
+            skill_name,
+            arguments,
+            context=context,
+        )
+        return _skill_tool_result(result)
 
     def create_invoice(self, order_id: str, title: str, *, trace_id: str | None = None) -> ToolCallResult:
         return self._run(
@@ -382,34 +392,6 @@ class MockBusinessToolService:
             "attempts": attempts,
         }
 
-    def _ticket_service(self) -> TicketService:
-        if self.ticket_service is None:
-            self.ticket_service = TicketService()
-        return self.ticket_service
-
-    def _create_ticket(self, args: CreateTicketArgs) -> dict[str, Any]:
-        # Writes are intentionally single-attempt. Entry idempotency protects the request boundary.
-        ticket = self._ticket_service().create_ticket(
-            sender_id=args.user_id,
-            text=args.description,
-            category=args.category,
-            metadata={"source": "business_tool"},
-        )
-        return _ticket_tool_data(ticket)
-
-    def _query_ticket_status(self, args: QueryTicketStatusArgs) -> dict[str, Any]:
-        try:
-            ticket = self._ticket_service().query_ticket_status(args.ticket_no)
-        except TicketNotFoundError as exc:
-            raise MockToolError(
-                code="TICKET_NOT_FOUND",
-                message="Ticket does not exist.",
-                retryable=False,
-                details={"ticket_no": exc.ticket_no},
-            ) from exc
-        return _ticket_tool_data(ticket)
-
-
 _default_service = MockBusinessToolService()
 
 
@@ -469,15 +451,29 @@ def _validation_errors(exc: ValidationError) -> list[dict[str, Any]]:
     return errors
 
 
-def _ticket_tool_data(ticket: Ticket) -> dict[str, Any]:
-    return {
-        "ticket_id": ticket.ticket_id,
-        "ticket_no": ticket.ticket_no,
-        "category": ticket.category,
-        "description": str(ticket.metadata.get("raw_text") or ticket.summary),
-        "user_id": ticket.sender_id,
-        "status": ticket.status,
-        "priority": ticket.priority,
-        "created_at": ticket.created_at.isoformat(),
-        "updated_at": ticket.updated_at.isoformat(),
+def _skill_tool_result(result: SkillExecutionResult) -> ToolCallResult:
+    metadata = {
+        **result.metadata,
+        "runtime": "skill_runtime",
+        "source": settings.ticket_store_backend,
+        "mock": settings.ticket_store_backend == "memory",
     }
+    error = None
+    if result.error is not None:
+        error = ToolError(
+            code=result.error.code,
+            message=result.error.message,
+            retryable=result.error.retryable,
+            details=result.error.details,
+        )
+    return ToolCallResult(
+        tool_name=result.skill_name,
+        success=result.success,
+        status=result.status,
+        arguments=result.arguments,
+        data=result.data,
+        error=error,
+        latency_ms=result.latency_ms,
+        trace_id=result.trace_id,
+        metadata=metadata,
+    )

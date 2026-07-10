@@ -9,6 +9,7 @@
 | [docs/architecture.md](docs/architecture.md) | 分层职责、请求生命周期、与开发计划映射 |
 | [docs/prompt.md](docs/prompt.md) | 命令式 Prompt 与 RAG Prompt 分工 |
 | [docs/rag.md](docs/rag.md) | 文档加载、切分、检索、生成与演进方向 |
+| [docs/skills_design.md](docs/skills_design.md) | Skill Runtime、工单 Skill 策略与兼容边界 |
 | [docs/interview_qna.md](docs/interview_qna.md) | 高频面试问答与简历表达 |
 
 总体规划见 [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)。
@@ -23,6 +24,7 @@
 - **LLM**：支持 OpenAI 兼容接口，例如阿里云百炼；`LLM_ENABLED=false` 时可依赖规则、Flow 与兜底逻辑做确定性演示。
 - **RAG**：支持 `keyword`、`chroma`、`hybrid` 三种后端；`.env.example` 默认使用 Chroma 向量检索。
 - **业务能力**：售后/物流流程、模拟业务工具、工单流转、意图树、会话摘要和查询改写。
+- **Skill Runtime**：统一 Skill 注册、Pydantic v2 输入输出校验、角色/风险/幂等要求、超时重试、标准错误和脱敏 tool trace；首批迁移工单创建与状态查询。
 - **观测与评测**：结构化日志、trace 记录、检索记录、工具调用记录、RAG 评测接口、MySQL/SQLAlchemy/Alembic 持久化。
 
 ---
@@ -40,6 +42,7 @@ customer_hand/
     agent/                Agent 主流程与 graph 节点
     intent/               意图 taxonomy、分类、策略与 Prompt
     actions/              Action 注册与内置动作
+    skills/               Skill 定义、注册、执行、上下文和 trace 脱敏
     tools/                业务工具 schema、服务与 mock store
     tickets/              工单模型、分类、路由、服务与存储
     memory/               会话记忆、实体抽取、摘要、查询改写

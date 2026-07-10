@@ -38,6 +38,7 @@ class BusinessToolSchema(BaseModel):
     examples: list[ToolExample] = Field(default_factory=list)
     risk_level: RiskLevel = "low"
     requires_confirmation: bool = False
+    requires_idempotency: bool = False
     trace_enabled: bool = True
 
     def to_prompt_schema(self) -> dict[str, Any]:
@@ -52,6 +53,7 @@ class BusinessToolSchema(BaseModel):
             "examples": [example.model_dump(mode="json") for example in self.examples],
             "risk_level": self.risk_level,
             "requires_confirmation": self.requires_confirmation,
+            "requires_idempotency": self.requires_idempotency,
             "trace_enabled": self.trace_enabled,
         }
 
@@ -303,7 +305,8 @@ TOOL_SCHEMAS: dict[str, BusinessToolSchema] = {
                 },
             )
         ],
-        risk_level="low",
+        risk_level="medium",
+        requires_idempotency=True,
     ),
     "query_ticket_status": BusinessToolSchema(
         name="query_ticket_status",
