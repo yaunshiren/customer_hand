@@ -20,6 +20,12 @@ from app.agent.tool_safety import PENDING_TOOL_CONFIRMATION_SLOT, is_cancellatio
 
 logger = logging.getLogger(__name__)
 
+READ_ONLY_BUSINESS_TOOLS = {
+    "order_query": "query_order",
+    "logistics_query": "query_logistics",
+    "ticket_status_query": "query_ticket_status",
+}
+
 
 def _graph_route_from_execution(execution_route: str) -> str:
     if execution_route == "tool":
@@ -79,7 +85,37 @@ def _business_route_name(classification: Any, *, has_set_slot: bool) -> str | No
     return None
 
 
-def _should_use_business_route(route_name: str | None, route_decision: Any | None) -> bool:
+def _is_complete_read_only_business_tool(classification: Any) -> bool:
+    data = _model_dump(classification)
+    question_type = str(data.get("question_type") or "").strip()
+    target_tool = str(data.get("target_tool") or "").strip()
+    expected_tool = READ_ONLY_BUSINESS_TOOLS.get(question_type)
+    required_arguments = {
+        str(item).strip()
+        for item in data.get("required_arguments") or []
+        if str(item).strip()
+    }
+    extracted_arguments = data.get("extracted_arguments")
+    if not isinstance(extracted_arguments, dict):
+        extracted_arguments = {}
+
+    return (
+        str(data.get("route") or "").strip() == "tool"
+        and expected_tool is not None
+        and target_tool == expected_tool
+        and str(data.get("risk_level") or "low").strip() == "low"
+        and not bool(data.get("requires_confirmation"))
+        and not list(data.get("missing_arguments") or [])
+        and bool(required_arguments)
+        and all(str(extracted_arguments.get(name) or "").strip() for name in required_arguments)
+    )
+
+
+def _should_use_business_route(
+    route_name: str | None,
+    route_decision: Any | None,
+    business_classification: Any | None = None,
+) -> bool:
     if route_name is None:
         return False
 
@@ -90,6 +126,12 @@ def _should_use_business_route(route_name: str | None, route_decision: Any | Non
     if route_name == "clarify" and execution_route in {"clarify", "tool", "flow"}:
         return True
     if route_name == "rag" and execution_route == "rag":
+        return True
+    if (
+        route_name == "tool"
+        and execution_route == "rag"
+        and _is_complete_read_only_business_tool(business_classification)
+    ):
         return True
     if route_name == "tool" and execution_route == "tool":
         return True
@@ -228,7 +270,11 @@ def route(state: AgentState) -> AgentState:
     if (
         tool_safety.get("decision") == "confirmed"
         and business_route_name == "tool"
-    ) or _should_use_business_route(business_route_name, route_decision):
+    ) or _should_use_business_route(
+        business_route_name,
+        route_decision,
+        business_classification,
+    ):
         route_name = business_route_name
         if route_name != "flow" and _has_command_type(results, "start_flow"):
             _clear_started_flow(tracker)

@@ -132,7 +132,42 @@ class BusinessQuestionClassifier:
                 ),
             )
 
-        if _is_logistics_query(normalized, intent_id):
+        # Explicit order status/details signals take precedence over the broad
+        # S16 logistics domain.  An S16 intent alone is not evidence that the
+        # user wants a real-time logistics lookup.
+        if _is_order_query(normalized):
+            if order_id:
+                return _result(
+                    question_type="order_query",
+                    route="tool",
+                    confidence=0.92,
+                    target_tool="query_order",
+                    required_arguments=["order_id"],
+                    extracted_arguments={"order_id": order_id},
+                    signals=_signals(normalized, intent_id, "order_query"),
+                    reason="personal order query contains an order id and can call query_order",
+                )
+            if _is_personal_order_request(normalized):
+                return _result(
+                    question_type="order_query",
+                    route="clarify",
+                    confidence=0.84,
+                    target_tool="query_order",
+                    required_arguments=["order_id"],
+                    missing_arguments=["order_id"],
+                    signals=_signals(normalized, intent_id, "order_query"),
+                    reason="personal order query is missing order_id",
+                )
+            return _result(
+                question_type="policy",
+                route="rag",
+                confidence=0.78,
+                requires_rag=True,
+                signals=_signals(normalized, intent_id, "order_policy"),
+                reason="general order rule question should use RAG",
+            )
+
+        if _is_logistics_query(normalized):
             if order_id:
                 return _result(
                     question_type="logistics_query",
@@ -164,36 +199,14 @@ class BusinessQuestionClassifier:
                 reason="general logistics rule question should use RAG",
             )
 
-        if _is_order_query(normalized, intent_id):
-            if order_id:
-                return _result(
-                    question_type="order_query",
-                    route="tool",
-                    confidence=0.92,
-                    target_tool="query_order",
-                    required_arguments=["order_id"],
-                    extracted_arguments={"order_id": order_id},
-                    signals=_signals(normalized, intent_id, "order_query"),
-                    reason="personal order query contains an order id and can call query_order",
-                )
-            if _is_personal_order_request(normalized):
-                return _result(
-                    question_type="order_query",
-                    route="clarify",
-                    confidence=0.84,
-                    target_tool="query_order",
-                    required_arguments=["order_id"],
-                    missing_arguments=["order_id"],
-                    signals=_signals(normalized, intent_id, "order_query"),
-                    reason="personal order query is missing order_id",
-                )
+        if _is_logistics_domain(normalized, intent_id):
             return _result(
                 question_type="policy",
                 route="rag",
-                confidence=0.78,
+                confidence=0.8,
                 requires_rag=True,
-                signals=_signals(normalized, intent_id, "order_policy"),
-                reason="general order rule question should use RAG",
+                signals=_signals(normalized, intent_id, "logistics_policy"),
+                reason="general logistics rule question should use RAG",
             )
 
         if _is_policy_question(normalized, intent_type):
@@ -281,6 +294,49 @@ def _extract_order_id(text: str, tracker: Any | None) -> str | None:
         value = match.group("order_id").strip()
         if _looks_like_order_id(value) and not _looks_like_product_model(text, value):
             return value
+    return _tracker_memory_order_id(tracker, current_text=text)
+
+
+def _tracker_memory_order_id(tracker: Any | None, *, current_text: str) -> str | None:
+    if tracker is None:
+        return None
+
+    memory = getattr(tracker, "memory", None)
+    if memory is None and isinstance(tracker, dict):
+        memory = tracker.get("memory")
+    if hasattr(memory, "to_dict"):
+        memory = memory.to_dict()
+    if not isinstance(memory, dict):
+        return None
+
+    entities = memory.get("memory_entities")
+    if isinstance(entities, dict):
+        value = str(entities.get("order_id") or "").strip()
+        if _looks_like_order_id(value):
+            return value
+
+    # load_context appends the current user turn before classification. Search
+    # previous user turns only; assistant text must not introduce an identifier.
+    recent_turns = memory.get("recent_turns")
+    if not isinstance(recent_turns, list):
+        return None
+    normalized_current = _normalize_text(current_text)
+    for index in range(len(recent_turns) - 1, -1, -1):
+        turn = recent_turns[index]
+        if not isinstance(turn, dict):
+            continue
+        user_text = _normalize_text(str(turn.get("user") or ""))
+        if index == len(recent_turns) - 1 and user_text == normalized_current:
+            continue
+        for pattern in EXPLICIT_ORDER_PATTERNS:
+            match = pattern.search(user_text)
+            if match and _looks_like_order_id(match.group("order_id")):
+                return match.group("order_id").strip()
+        if _contains_any(user_text, ORDER_CONTEXT_KEYWORDS):
+            for match in FALLBACK_ORDER_ID_RE.finditer(user_text):
+                value = match.group("order_id").strip()
+                if _looks_like_order_id(value) and not _looks_like_product_model(user_text, value):
+                    return value
     return None
 
 
@@ -366,14 +422,18 @@ def _is_invoice_policy(text: str, order_id: str | None) -> bool:
     return _contains_any(text, POLICY_QUESTION_KEYWORDS) or _contains_any(text, INVOICE_POLICY_KEYWORDS)
 
 
-def _is_logistics_query(text: str, intent_id: str) -> bool:
-    return intent_id.startswith("S16_") or _contains_any(text, LOGISTICS_KEYWORDS)
+def _is_logistics_query(text: str) -> bool:
+    return any(pattern.search(text) for pattern in LOGISTICS_REALTIME_QUERY_PATTERNS)
 
 
-def _is_order_query(text: str, intent_id: str) -> bool:
-    if intent_id.startswith("S16_") or intent_id.startswith("S17_"):
+def _is_order_query(text: str) -> bool:
+    if _is_logistics_query(text):
         return False
     return _contains_any(text, ORDER_QUERY_KEYWORDS)
+
+
+def _is_logistics_domain(text: str, intent_id: str) -> bool:
+    return intent_id.startswith("S16_") or _contains_any(text, LOGISTICS_KEYWORDS)
 
 
 def _is_personal_order_request(text: str) -> bool:
@@ -421,7 +481,21 @@ INVOICE_TITLE_PATTERNS = (
     re.compile(r"(?P<title>公司|个人|单位|企业)发票"),
 )
 
-ORDER_CONTEXT_KEYWORDS = ("订单", "单号", "order", "购买记录", "物流", "快递", "发票", "开票", "到哪")
+ORDER_CONTEXT_KEYWORDS = (
+    "订单",
+    "单号",
+    "order",
+    "购买记录",
+    "物流",
+    "快递",
+    "配送",
+    "运输",
+    "运单",
+    "包裹",
+    "发票",
+    "开票",
+    "到哪",
+)
 ORDER_QUERY_KEYWORDS = (
     "订单",
     "订单状态",
@@ -453,8 +527,17 @@ TICKET_STATUS_QUERY_KEYWORDS = (
     "工单进度",
     "处理进度",
     "处理到哪",
+    "当前状态",
+    "现在什么状态",
     "ticket status",
     "ticket progress",
+)
+LOGISTICS_REALTIME_QUERY_PATTERNS = (
+    re.compile(r"(?:查|查询|查看|看一下|帮我查).{0,8}(?:物流|快递|配送|运单|包裹|运输)"),
+    re.compile(r"(?:物流|快递|配送|包裹|运输).{0,8}(?:状态|进度|到哪|在哪|位置|轨迹)"),
+    re.compile(r"(?:到哪(?:里)?了?|现在在哪(?:里)?|运到哪(?:里)?|送到哪(?:里)?)"),
+    re.compile(r"(?:运单号|快递单号|物流单号).{0,8}(?:多少|什么|查询|查|是)"),
+    re.compile(r"(?:是否|有没有|已经).{0,6}签收|签收(?:了吗|状态)"),
 )
 POLICY_QUESTION_KEYWORDS = ("怎么", "如何", "能不能", "可以吗", "规则", "流程", "政策", "条件")
 GENERAL_POLICY_KEYWORDS = (

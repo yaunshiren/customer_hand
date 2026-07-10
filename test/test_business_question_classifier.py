@@ -62,6 +62,46 @@ def test_order_query_with_order_id_targets_order_tool() -> None:
     assert result.extracted_arguments == {"order_id": "10001"}
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "订单 10001 的状态",
+        "订单 10001 付款状态",
+        "订单 10001 买了什么",
+        "订单 10001 详情",
+    ],
+)
+def test_explicit_order_queries_win_over_logistics_domain_intent(text: str) -> None:
+    result = BusinessQuestionClassifier().classify(
+        text,
+        intent_result=_intent("S16_物流配送", "物流配送", "KB_TOOL"),
+    )
+
+    assert result.question_type == "order_query"
+    assert result.route == "tool"
+    assert result.target_tool == "query_order"
+    assert result.extracted_arguments == {"order_id": "10001"}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "帮我查订单 10001 的物流到哪里了",
+        "订单 10002 的快递状态和运单号是什么？",
+    ],
+)
+def test_explicit_logistics_queries_use_realtime_text_signals(text: str) -> None:
+    result = BusinessQuestionClassifier().classify(
+        text,
+        intent_result=_intent("S16_物流配送", "物流配送", "KB_TOOL"),
+    )
+
+    assert result.question_type == "logistics_query"
+    assert result.route == "tool"
+    assert result.target_tool == "query_logistics"
+    assert result.extracted_arguments["order_id"] in {"10001", "10002"}
+
+
 def test_complaint_targets_ticket_tool_with_context() -> None:
     result = BusinessQuestionClassifier().classify("我要投诉客服态度差", user_id="u-001")
 
@@ -84,6 +124,23 @@ def test_explicit_ticket_number_and_status_intent_targets_query_tool() -> None:
     assert result.target_tool == "query_ticket_status"
     assert result.extracted_arguments == {
         "ticket_no": "TKT-20260709-A1B2C3D4E5F6",
+    }
+
+
+@pytest.mark.parametrize(
+    "status_phrase",
+    ["当前状态", "现在什么状态", "处理到哪了"],
+)
+def test_ticket_number_with_supported_status_phrase_targets_query_tool(status_phrase: str) -> None:
+    result = BusinessQuestionClassifier().classify(
+        f"请查询工单 TKT-20260709-FFFFFFFFFFFF {status_phrase}"
+    )
+
+    assert result.question_type == "ticket_status_query"
+    assert result.route == "tool"
+    assert result.target_tool == "query_ticket_status"
+    assert result.extracted_arguments == {
+        "ticket_no": "TKT-20260709-FFFFFFFFFFFF",
     }
 
 
@@ -149,6 +206,46 @@ def test_order_id_can_come_from_tracker_slot() -> None:
     assert result.route == "tool"
     assert result.target_tool == "query_logistics"
     assert result.extracted_arguments == {"order_id": "A12345678"}
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["查一下物流", "它现在到哪里了", "配送进度怎么样"],
+)
+def test_realtime_logistics_query_inherits_order_id_from_tracker(text: str) -> None:
+    tracker = DialogueStateTracker("u-context")
+    tracker.set_slot("order_id", "10001")
+
+    result = BusinessQuestionClassifier().classify(
+        text,
+        intent_result=_intent("S16_物流配送", "物流配送", "KB_TOOL"),
+        tracker=tracker,
+    )
+
+    assert result.question_type == "logistics_query"
+    assert result.route == "tool"
+    assert result.target_tool == "query_logistics"
+    assert result.extracted_arguments == {"order_id": "10001"}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "发货多久到",
+        "下单后多久发货",
+        "怎么修改地址",
+        "物流怎么处理",
+    ],
+)
+def test_logistics_policy_questions_do_not_use_realtime_tool(text: str) -> None:
+    result = BusinessQuestionClassifier().classify(
+        text,
+        intent_result=_intent("S16_物流配送", "物流配送", "KB_TOOL"),
+    )
+
+    assert result.route == "rag"
+    assert result.requires_rag is True
+    assert result.target_tool is None
 
 
 def test_intent_result_can_drive_policy_classification() -> None:

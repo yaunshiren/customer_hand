@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.agent.agent import Agent
 from app.core.tracker_store import InMemoryTrackerStore
 from app.rag.answerer import KnowledgeAnswerer
@@ -36,6 +38,92 @@ def test_logistics_query_with_order_id_calls_business_tool() -> None:
     assert metadata["tool_success"] is True
     assert metadata["tool_arguments"] == {"order_id": "10001"}
     assert "10001" in response[0]["text"]
+
+
+def test_order_status_query_is_not_overridden_by_logistics_rag_route() -> None:
+    response = _agent().handle_message("帮我查询订单 10001 的状态", "tool_order_status_user")
+    metadata = response[0]["metadata"]
+
+    assert metadata["route"] == "tool"
+    assert metadata["business_question_type"] == "order_query"
+    assert metadata["business_tool"] == "query_order"
+    assert metadata["tool_name"] == "query_order"
+    assert metadata["tool_arguments"] == {"order_id": "10001"}
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "帮我查订单 10001 的物流到哪里了",
+        "订单 10002 的快递状态和运单号是什么？",
+    ],
+)
+def test_realtime_logistics_query_overrides_generic_logistics_rag_route(message: str) -> None:
+    response = _agent().handle_message(message, "tool_logistics_eval_user")
+    metadata = response[0]["metadata"]
+
+    assert metadata["route"] == "tool"
+    assert metadata["business_question_type"] == "logistics_query"
+    assert metadata["business_tool"] == "query_logistics"
+    assert metadata["tool_name"] == "query_logistics"
+
+
+def test_ticket_current_status_query_calls_ticket_status_tool() -> None:
+    response = _agent().handle_message(
+        "请查询工单 TKT-20260709-FFFFFFFFFFFF 当前状态",
+        "tool_ticket_status_user",
+    )
+    metadata = response[0]["metadata"]
+
+    assert metadata["route"] == "tool"
+    assert metadata["business_question_type"] == "ticket_status_query"
+    assert metadata["business_tool"] == "query_ticket_status"
+    assert metadata["tool_name"] == "query_ticket_status"
+    assert metadata["tool_arguments"] == {"ticket_no": "TKT-20260709-FFFFFFFFFFFF"}
+
+
+@pytest.mark.parametrize(
+    "followup",
+    ["查一下物流", "那它现在到哪里了？", "配送进度怎么样"],
+)
+def test_logistics_followup_inherits_order_id_and_calls_tool(followup: str) -> None:
+    agent = _agent()
+    sender_id = "tool_logistics_context_user"
+
+    agent.handle_message("请记住我的订单号是 10001", sender_id)
+    response = agent.handle_message(followup, sender_id)
+    metadata = response[0]["metadata"]
+
+    assert metadata["route"] == "tool"
+    assert metadata["business_tool"] == "query_logistics"
+    assert metadata["tool_name"] == "query_logistics"
+    assert metadata["tool_arguments"] == {"order_id": "10001"}
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "发货多久到",
+        "下单后多久发货",
+        "怎么修改地址",
+        "物流怎么处理",
+    ],
+)
+def test_logistics_policy_questions_stay_on_rag(message: str) -> None:
+    response = _agent().handle_message(message, "tool_policy_negative_user")
+    metadata = response[0]["metadata"]
+
+    assert metadata["route"] == "rag"
+    assert metadata.get("tool_name") is None
+
+
+@pytest.mark.parametrize("message", ["如何提交工单", "工单怎么处理"])
+def test_general_ticket_questions_do_not_call_ticket_status_tool(message: str) -> None:
+    response = _agent().handle_message(message, "tool_ticket_negative_user")
+    metadata = response[0]["metadata"]
+
+    assert metadata["route"] != "tool"
+    assert metadata.get("tool_name") is None
 
 
 def test_logistics_query_without_order_id_uses_rag_and_exposes_missing_argument() -> None:
