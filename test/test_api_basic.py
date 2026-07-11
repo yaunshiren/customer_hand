@@ -111,7 +111,10 @@ def test_reset_tracker():
     )
     assert create_response.status_code == 200
 
-    tracker_response = client.get(f"/api/tracker/{sender_id}/full")
+    tracker_response = client.get(
+        f"/api/tracker/{sender_id}/full",
+        headers=AUTH_USER,
+    )
     assert tracker_response.status_code == 200
     tracker_data = tracker_response.json()
     assert tracker_data["sender_id"] == sender_id
@@ -125,5 +128,8 @@ def test_reset_tracker():
     assert reset_data["reset"] is True
     assert "message" in reset_data
 
-    after_reset_response = client.get(f"/api/tracker/{sender_id}/full")
+    after_reset_response = client.get(
+        f"/api/tracker/{sender_id}/full",
+        headers=AUTH_USER,
+    )
     assert after_reset_response.status_code == 404

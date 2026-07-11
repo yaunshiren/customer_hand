@@ -12,6 +12,10 @@ DEFAULT_FLOW_DIR = PROJECT_ROOT / "data" / "flows"
 DEFAULT_KNOWLEDGE_DIR = PROJECT_ROOT / "data" / "knowledge"
 
 
+class SettingsConfigurationError(RuntimeError):
+    """安全相关配置不满足启动不变量。"""
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=DEFAULT_ENV_FILE,
@@ -102,6 +106,27 @@ class Settings(BaseSettings):
             raise ValueError(
                 "memory_summary_start_turns must be greater than memory_recent_turn_limit"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_api_key_principal_ids(self) -> Settings:
+        # Temporary S0-01 security invariant: Tracker Store currently uses
+        # sender_id as a global key. Until S0-03 introduces a tenant-aware
+        # Store, every server-configured principal_id must be globally unique.
+        seen_principal_ids: set[str] = set()
+        for profile in self.api_key_principals.values():
+            principal_id = str(
+                profile.get("principal_id") or profile.get("user_id") or ""
+            ).strip()
+            if not principal_id:
+                continue
+            if principal_id in seen_principal_ids:
+                # Use a non-Pydantic configuration exception so validation
+                # output cannot include the input mapping's API Key values.
+                raise SettingsConfigurationError(
+                    f"duplicate API key principal_id: {principal_id}"
+                )
+            seen_principal_ids.add(principal_id)
         return self
 
 settings = Settings()

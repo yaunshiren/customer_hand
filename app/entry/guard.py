@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import Request
 
 from app.api.schemas import MessageRequest
+from app.core.exceptions import ForbiddenError
 from app.entry.auth import (
     authenticate_request,
     require_admin_or_owner,
@@ -13,6 +14,8 @@ from app.entry.normalizer import normalize_message_request
 from app.entry.rate_limit import enforce_rate_limit, enforce_rate_limit_for_principal
 
 MESSAGE_ROLES = {"user", "evaluator", "admin"}
+TRACKER_READ_ROLES = {"user", "admin"}
+TRUSTED_RESOURCE_AUTH_TYPES = {"api_key", "jwt"}
 
 
 async def prepare_message_task(req: MessageRequest, request: Request) -> EntryTask:
@@ -45,6 +48,36 @@ def guard_tracker_reset(request: Request, sender_id: str) -> Principal:
     principal = authenticate_request(request)
     require_admin_or_owner(principal, sender_id)
     return principal
+
+
+def guard_tracker_full(request: Request, sender_id: str) -> Principal:
+    principal = authenticate_request(request)
+    require_any_role(principal, TRACKER_READ_ROLES)
+
+    # Dev tokens carry client-authored identity and role fields. They remain a
+    # compatibility option for other development flows, but are not reliable
+    # enough to authorize a full Tracker read.
+    _require_trusted_resource_principal(principal)
+
+    # Tracker currently has no tenant field. An admin role alone therefore
+    # cannot prove that an arbitrary Tracker belongs to the admin's tenant.
+    # Restrict reads to the authenticated identity until tenant ownership is
+    # represented by the resource model.
+    if principal.user_id.strip() != str(sender_id or "").strip():
+        raise ForbiddenError("permission denied")
+    return principal
+
+
+def guard_inspect_page(request: Request) -> Principal:
+    principal = authenticate_request(request)
+    require_any_role(principal, {"admin"})
+    _require_trusted_resource_principal(principal)
+    return principal
+
+
+def _require_trusted_resource_principal(principal: Principal) -> None:
+    if principal.auth_type not in TRUSTED_RESOURCE_AUTH_TYPES:
+        raise ForbiddenError("permission denied")
 
 
 def guard_knowledge_reindex(request: Request) -> Principal:
