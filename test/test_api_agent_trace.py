@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import os
 import uuid
 
 import pytest
 from fastapi.testclient import TestClient
-
-os.environ["LLM_ENABLED"] = "false"
 
 from app.persistence.db import ping_trace_db, trace_db_session  # noqa: E402
 from app.persistence.models import AgentTrace  # noqa: E402
@@ -208,6 +205,8 @@ def test_api_messages_calls_trace_recorder_on_agent_error_without_db() -> None:
     assert recorder.successes == []
 
 
+@pytest.mark.integration
+@pytest.mark.mysql
 def test_api_messages_persists_agent_trace(trace_db_available) -> None:
     trace_id = _trace_id()
     _delete_agent_trace(trace_id)
@@ -243,6 +242,8 @@ def test_api_messages_persists_agent_trace(trace_db_available) -> None:
         _delete_agent_trace(trace_id)
 
 
+@pytest.mark.integration
+@pytest.mark.mysql
 def test_api_messages_persists_error_trace(trace_db_available) -> None:
     trace_id = _trace_id()
     _delete_agent_trace(trace_id)

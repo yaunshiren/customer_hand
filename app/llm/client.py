@@ -5,20 +5,16 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import httpx
-from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
+from app.settings import load_runtime_dotenv
 from app.utils.telemetry import emit_llm_event
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
-
 
 @dataclass
 class LLMResult:
@@ -57,7 +53,7 @@ class LLMClient:
     def from_env(cls) -> "LLMClient":
         import os
 
-        load_dotenv(DEFAULT_ENV_FILE)
+        load_runtime_dotenv()
 
         enabled = os.getenv("LLM_ENABLED", "false").lower() == "true"
         api_key = (

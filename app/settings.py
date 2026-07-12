@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Literal
 
+from dotenv import load_dotenv
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -10,6 +12,36 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ENV_FILE = PROJECT_ROOT / ".env"
 DEFAULT_FLOW_DIR = PROJECT_ROOT / "data" / "flows"
 DEFAULT_KNOWLEDGE_DIR = PROJECT_ROOT / "data" / "knowledge"
+DISABLE_DOTENV_ENV_VAR = "CUSTOMER_HAND_DISABLE_DOTENV"
+
+
+def dotenv_disabled() -> bool:
+    return os.getenv(DISABLE_DOTENV_ENV_VAR, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def runtime_env_file() -> Path | None:
+    """Return the runtime dotenv source, or None for hermetic test processes."""
+
+    if dotenv_disabled():
+        return None
+    return DEFAULT_ENV_FILE
+
+
+def load_runtime_dotenv() -> bool:
+    """Load the development dotenv only when the runtime explicitly allows it."""
+
+    env_file = runtime_env_file()
+    if env_file is None:
+        return False
+    return bool(load_dotenv(env_file))
+
+
+RUNTIME_ENV_FILE = runtime_env_file()
 
 
 class SettingsConfigurationError(RuntimeError):
@@ -18,7 +50,7 @@ class SettingsConfigurationError(RuntimeError):
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=DEFAULT_ENV_FILE,
+        env_file=RUNTIME_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -128,4 +160,4 @@ class Settings(BaseSettings):
             seen_principal_ids.add(principal_id)
         return self
 
-settings = Settings()
+settings = Settings(_env_file=RUNTIME_ENV_FILE)

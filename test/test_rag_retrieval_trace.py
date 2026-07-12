@@ -148,6 +148,8 @@ def test_keyword_retriever_emits_retrieval_trace_payload(monkeypatch) -> None:
     ]
 
 
+@pytest.mark.integration
+@pytest.mark.mysql
 def test_keyword_retriever_persists_retrieval_trace_to_mysql(trace_db_available) -> None:
     trace_id = _trace_id()
     match = _match("DOC_DB", "DOC_DB-0", 7.0)

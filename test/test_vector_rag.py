@@ -228,6 +228,7 @@ def test_knowledge_base_retriever_chroma_delegates_to_vector(
 
 
 @pytest.mark.integration
+@pytest.mark.external
 def test_rebuild_and_retrieve_integration(integration_embedding_enabled: bool) -> None:
     if not integration_embedding_enabled:
         pytest.skip("设置 RUN_EMBEDDING_INTEGRATION=1 且配置 DASHSCOPE_API_KEY 后运行")

@@ -11,6 +11,9 @@ from app.persistence.db import get_engine, ping_trace_db, trace_db_session
 from app.persistence.models import ConversationMessage, ConversationSummary
 
 
+pytestmark = [pytest.mark.integration, pytest.mark.mysql]
+
+
 @pytest.fixture()
 def memory_sender_id() -> Iterator[str]:
     try:

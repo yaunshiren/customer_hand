@@ -9,7 +9,7 @@ import pytest
 from app.entry.idempotency_store import IdempotencyScope, RedisIdempotencyStore
 
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.redis]
 
 
 @pytest.mark.skipif(

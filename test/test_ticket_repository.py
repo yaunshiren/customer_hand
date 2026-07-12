@@ -11,6 +11,9 @@ from app.persistence.ticket_repository import TicketRepository
 from app.tickets.service import TicketService
 
 
+pytestmark = [pytest.mark.integration, pytest.mark.mysql]
+
+
 @pytest.fixture()
 def mysql_ticket_service() -> TicketService:
     try:

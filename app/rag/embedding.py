@@ -3,10 +3,9 @@ from __future__ import annotations
 import time
 from typing import Any, Iterator
 
-from dotenv import load_dotenv
 from openai import OpenAI
 
-from app.settings import DEFAULT_ENV_FILE, settings
+from app.settings import load_runtime_dotenv, settings
 from app.utils.telemetry import emit_rag_event
 
 EMBEDDING_BATCH_SIZE = 10
@@ -52,7 +51,7 @@ class EmbeddingClient:
     def from_env(cls) -> EmbeddingClient:
         import os
 
-        load_dotenv(DEFAULT_ENV_FILE)
+        load_runtime_dotenv()
 
         api_key = (
             os.getenv("DASHSCOPE_API_KEY")

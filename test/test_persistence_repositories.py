@@ -19,6 +19,9 @@ from app.persistence.repositories import (
 )
 
 
+pytestmark = [pytest.mark.integration, pytest.mark.mysql]
+
+
 @pytest.fixture()
 def db_session() -> Session:
     try:

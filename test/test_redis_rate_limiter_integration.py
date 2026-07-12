@@ -15,7 +15,7 @@ from app.entry.rate_limit_store import (
 )
 
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.redis]
 
 
 @pytest.mark.skipif(

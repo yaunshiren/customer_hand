@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-
-os.environ["LLM_ENABLED"] = "false"
 
 from app.agent.agent import Agent  # noqa: E402
 from app.core.exceptions import (  # noqa: E402

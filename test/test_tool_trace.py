@@ -167,6 +167,8 @@ def test_ticket_node_records_failed_tool_trace(captured_tool_traces: list[dict[s
     assert trace["result_json"]["error"] == "ticket down"
 
 
+@pytest.mark.integration
+@pytest.mark.mysql
 def test_action_node_writes_tool_trace_to_mysql_when_available() -> None:
     try:
         ping_trace_db()

@@ -109,6 +109,8 @@ def test_render_badcase_markdown_groups_by_error_type() -> None:
     assert "POLICY_RET_001" in markdown
 
 
+@pytest.mark.integration
+@pytest.mark.mysql
 def test_persist_eval_jsonl_to_mysql_when_available(tmp_path: Path) -> None:
     try:
         ping_trace_db()
@@ -196,6 +198,8 @@ def test_persist_eval_jsonl_to_mysql_when_available(tmp_path: Path) -> None:
             session.execute(delete(EvalRecord).where(EvalRecord.run_id == run_id))
 
 
+@pytest.mark.integration
+@pytest.mark.mysql
 def test_persist_eval_jsonl_uses_failed_tool_trace_for_attribution(tmp_path: Path) -> None:
     try:
         ping_trace_db()

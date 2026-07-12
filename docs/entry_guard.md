@@ -336,3 +336,27 @@ Prompt Injection 风险示例：
 ## 11. 面试解释版本
 
 我在项目中增加了生产化入口治理层。每个请求进入 Agent 前都会被标准化为 EntryTask，并注入 trace_id、用户、租户、场景和能力信息。入口层会先完成鉴权、角色权限、场景化限流、幂等控制和安全检测，再进入 LangGraph Agent 流程。这样做的好处是，RAG、工具调用和评测链路都能基于统一上下文运行，并且在出现重复请求、越权调用、Prompt Injection 或高风险工具误调用时可以提前拦截和追踪。
+
+## 12. Pytest 配置隔离
+
+`test/conftest.py` 在应用模块导入前设置 `APP_ENV=test`、关闭 runtime dotenv、
+清空 Trace DB、关闭 LLM/Embedding、使用 keyword RAG，并选择内存 Ticket、幂等和
+限流后端。普通 pytest 不读取仓库 `.env`，也不继承开发数据库、Redis、Provider 或
+Chroma 配置。
+
+`pytest.ini` 默认排除 `integration` marker。真实依赖测试必须同时显式选择 marker
+并设置对应 gate，例如：
+
+```powershell
+$env:RUN_MYSQL_INTEGRATION = "1"
+$env:TRACE_DB_URL = "mysql+pymysql://test_user:test_password@127.0.0.1:3307/customer_hand_test"
+pytest -p no:cacheprovider -q -m "integration and mysql"
+
+$env:RUN_REDIS_INTEGRATION = "1"
+$env:REDIS_URL = "redis://127.0.0.1:6379/15"
+pytest -p no:cacheprovider -q -m "integration and redis"
+```
+
+集成测试必须使用独立测试账号、数据库和端口，不得指向开发、pilot、production 或
+客户环境。即使运行 integration，pytest 也不会读取仓库 `.env`；配置必须通过当前
+进程环境显式提供。
