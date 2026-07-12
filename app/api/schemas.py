@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class MessageRequest(BaseModel):
-    sender_id: str = Field(default="user", min_length=1)
+    sender_id: str | None = Field(default=None, min_length=1)
     message: str = Field(min_length=1)
     conversation_id: str | None = None
     source: str = "api"

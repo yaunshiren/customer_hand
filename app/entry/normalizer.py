@@ -6,7 +6,7 @@ from uuid import uuid4
 from fastapi import Request
 
 from app.api.schemas import MessageRequest
-from app.core.exceptions import BadRequestError
+from app.core.exceptions import BadRequestError, ForbiddenError
 from app.core.trace import trace_id_from_request
 from app.entry.models import EntrySource, EntryTask, Principal
 from app.entry.security import build_security_flags
@@ -28,8 +28,9 @@ def normalize_message_request(
     req: MessageRequest,
     request: Request,
     *,
-    principal: Principal | None = None,
+    principal: Principal,
 ) -> EntryTask:
+    sender_id = _bind_sender_to_principal(req.sender_id, principal)
     raw_text = req.message or ""
     normalized_text = raw_text.strip()
     if not normalized_text:
@@ -39,7 +40,6 @@ def normalize_message_request(
     metadata = dict(getattr(req, "metadata", None) or {})
     metadata.setdefault("text_hash", security_flags.text_hash)
 
-    sender_id = str(req.sender_id or "").strip() or "user"
     conversation_id = str(getattr(req, "conversation_id", None) or sender_id).strip()
     source = _source(getattr(req, "source", None))
     scenario = _scenario(getattr(req, "scenario", None))
@@ -55,7 +55,7 @@ def normalize_message_request(
         source=source,
         scenario=scenario,
         capability=capability,
-        principal=principal or Principal(user_id=sender_id, tenant_id="default", roles=["user"]),
+        principal=principal,
         sender_id=sender_id,
         conversation_id=conversation_id,
         raw_text=raw_text,
@@ -64,6 +64,17 @@ def normalize_message_request(
         security_flags=security_flags,
         metadata=metadata,
     )
+
+
+def _bind_sender_to_principal(
+    requested_sender_id: str | None,
+    principal: Principal,
+) -> str:
+    trusted_sender_id = str(principal.user_id or "").strip()
+    requested = str(requested_sender_id or "").strip()
+    if requested and requested != trusted_sender_id:
+        raise ForbiddenError("permission denied")
+    return trusted_sender_id
 
 
 def _request_id(request: Request) -> str:

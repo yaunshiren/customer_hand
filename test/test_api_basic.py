@@ -74,7 +74,7 @@ def test_health_ok():
 
 
 def test_send_message_returns_list():
-    sender_id = "test_user_day4_message"
+    sender_id = "user_001"
 
     response = client.post(
         "/api/messages",

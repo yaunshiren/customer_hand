@@ -302,7 +302,7 @@ def test_allow_case_http_400_is_case_failure_not_safety_pass(tmp_path) -> None:
     assert "UNSAFE_ACTION" in result.error_types
 
 
-def test_writes_state_requests_get_unique_identity_and_idempotency_key(tmp_path) -> None:
+def test_writes_state_requests_derive_sender_and_keep_unique_request_scope(tmp_path) -> None:
     responses = [
         FakeResponse(200, [{"text": "ok", "metadata": {"security_flags": {}}}], trace_id="trace-1"),
         FakeResponse(200, [{"text": "ok", "metadata": {"security_flags": {}}}], trace_id="trace-2"),
@@ -333,11 +333,10 @@ def test_writes_state_requests_get_unique_identity_and_idempotency_key(tmp_path)
     )
 
     keys = [post["headers"]["Idempotency-Key"] for post in client.posts]
-    senders = [post["json"]["sender_id"] for post in client.posts]
     conversations = [post["json"]["conversation_id"] for post in client.posts]
     assert len(set(keys)) == 2
-    assert len(set(senders)) == 2
     assert len(set(conversations)) == 2
+    assert all("sender_id" not in post["json"] for post in client.posts)
     assert all(post["json"]["metadata"]["writes_state"] is True for post in client.posts)
 
 

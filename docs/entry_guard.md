@@ -19,19 +19,19 @@
 ```text
 HTTP Request
   ↓
-Normalize to EntryTask
-  ↓
 Attach trace_id / request_id
   ↓
 Authenticate API Key principal
   ↓
 Authorize role / capability
   ↓
+Bind sender to Principal / Normalize to EntryTask
+  ↓
+Security scan: PII / prompt injection
+  ↓
 Apply rate limit
   ↓
 Check idempotency
-  ↓
-Security scan: PII / prompt injection
   ↓
 Call Agent Runtime
   ↓
@@ -69,8 +69,9 @@ API_KEY_PRINCIPALS={"demo-user-key":{"principal_id":"user_001","tenant_id":"tena
 2. `X-API-Key: <api_key>`
 
 如果两个 Header 同时存在，以 Authorization Bearer 为准。API Key 不写入日志、
-trace、错误响应或测试快照。旧 dev token 仅在非生产环境且
-`AUTH_ALLOW_DEV_TOKENS=true` 时兼容，生产环境始终拒绝 dev token。
+trace、错误响应或测试快照。旧 dev token 仍可由认证解析器在非生产环境且
+`AUTH_ALLOW_DEV_TOKENS=true` 时解析，但消息 sender 和受保护资源 guard 不把
+client-authored dev token 视为可靠 Principal；生产环境始终拒绝 dev token。
 
 ## 5. 权限策略
 
@@ -82,6 +83,17 @@ trace、错误响应或测试快照。旧 dev token 仅在非生产环境且
 | tracker reset | owner / admin | 仅本人或管理员 |
 | `/health`、`/inspect`、knowledge status | 公开 | 保持兼容 |
 | tracker 查询 | 公开 | 当前兼容行为，存在已知隐私风险 |
+
+### Message sender binding
+
+`POST /api/messages` authenticates the request before normalizing it. The trusted
+sender is always `Principal.user_id`: an omitted `sender_id` derives from that
+identity, an equal value is accepted, and a different value returns the standard
+403 response before rate limiting, trace persistence, idempotency, Agent, Tracker,
+Memory, RAG, Tool, or Ticket execution. Admin callers follow the same rule; the
+normal message API does not support impersonation. Tenant, role, owner, and scope
+values from headers, query parameters, body fields, or metadata never change this
+binding.
 
 ## 6. 幂等策略
 

@@ -21,6 +21,8 @@ TRUSTED_RESOURCE_AUTH_TYPES = {"api_key", "jwt"}
 async def prepare_message_task(req: MessageRequest, request: Request) -> EntryTask:
     principal = authenticate_request(request)
     require_any_role(principal, MESSAGE_ROLES)
+    # A client-authored dev token cannot establish a trustworthy sender.
+    _require_trusted_principal(principal)
     task = normalize_message_request(req, request, principal=principal)
     await enforce_rate_limit(
         task,
@@ -57,7 +59,7 @@ def guard_tracker_full(request: Request, sender_id: str) -> Principal:
     # Dev tokens carry client-authored identity and role fields. They remain a
     # compatibility option for other development flows, but are not reliable
     # enough to authorize a full Tracker read.
-    _require_trusted_resource_principal(principal)
+    _require_trusted_principal(principal)
 
     # Tracker currently has no tenant field. An admin role alone therefore
     # cannot prove that an arbitrary Tracker belongs to the admin's tenant.
@@ -71,11 +73,11 @@ def guard_tracker_full(request: Request, sender_id: str) -> Principal:
 def guard_inspect_page(request: Request) -> Principal:
     principal = authenticate_request(request)
     require_any_role(principal, {"admin"})
-    _require_trusted_resource_principal(principal)
+    _require_trusted_principal(principal)
     return principal
 
 
-def _require_trusted_resource_principal(principal: Principal) -> None:
+def _require_trusted_principal(principal: Principal) -> None:
     if principal.auth_type not in TRUSTED_RESOURCE_AUTH_TYPES:
         raise ForbiddenError("permission denied")
 

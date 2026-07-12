@@ -162,12 +162,12 @@ def test_api_messages_calls_trace_recorder_success_without_db() -> None:
     response = client.post(
         "/api/messages",
         headers=_headers(trace_id),
-        json={"sender_id": "trace_user", "message": "我想问售后政策"},
+        json={"sender_id": "user_001", "message": "我想问售后政策"},
     )
 
     assert response.status_code == 200
     assert recorder.starts[0]["trace_id"] == trace_id
-    assert recorder.starts[0]["sender_id"] == "trace_user"
+    assert recorder.starts[0]["sender_id"] == "user_001"
     assert recorder.successes[0]["trace_id"] == trace_id
     assert recorder.successes[0]["memory_snapshot"]["memory_entities"]["intent"] == "policy"
     assert recorder.successes[0]["memory_snapshot"]["query_rewrite"] == {
@@ -198,7 +198,7 @@ def test_api_messages_calls_trace_recorder_on_agent_error_without_db() -> None:
     response = client.post(
         "/api/messages",
         headers=_headers(trace_id),
-        json={"sender_id": "trace_error_user", "message": "触发异常"},
+        json={"sender_id": "user_001", "message": "触发异常"},
     )
 
     assert response.status_code == 500
@@ -218,15 +218,15 @@ def test_api_messages_persists_agent_trace(trace_db_available) -> None:
         response = client.post(
             "/api/messages",
             headers=_headers(trace_id),
-            json={"sender_id": "trace_user", "message": "我想问售后政策"},
+            json={"sender_id": "user_001", "message": "我想问售后政策"},
         )
 
         assert response.status_code == 200
         row = _get_agent_trace(trace_id)
         assert row is not None
         assert row.id == trace_id
-        assert row.sender_id == "trace_user"
-        assert row.conversation_id == "trace_user"
+        assert row.sender_id == "user_001"
+        assert row.conversation_id == "user_001"
         assert row.user_text.startswith("<text_hash:")
         assert "我想问售后政策" not in row.user_text
         assert row.rewritten_query == "售后政策"
@@ -253,13 +253,13 @@ def test_api_messages_persists_error_trace(trace_db_available) -> None:
         response = client.post(
             "/api/messages",
             headers=_headers(trace_id),
-            json={"sender_id": "trace_error_user", "message": "触发异常"},
+            json={"sender_id": "user_001", "message": "触发异常"},
         )
 
         assert response.status_code == 500
         row = _get_agent_trace(trace_id)
         assert row is not None
-        assert row.sender_id == "trace_error_user"
+        assert row.sender_id == "user_001"
         assert row.route == "error"
         assert row.final_answer is not None
         assert "RuntimeError: agent exploded" in row.final_answer

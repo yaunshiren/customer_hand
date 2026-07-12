@@ -302,7 +302,6 @@ def _post_message(
     if writes_state:
         headers["Idempotency-Key"] = f"eval-{uuid.uuid4().hex}"
     payload = {
-        "sender_id": identity["sender_id"],
         "conversation_id": identity["conversation_id"],
         "message": message,
         "source": "api",
@@ -466,7 +465,6 @@ def _case_identity(run_id: str, case_id: str) -> dict[str, str]:
     safe_case = "".join(char if char.isalnum() else "-" for char in case_id)[:48]
     return {
         "run_id": run_id,
-        "sender_id": f"eval-{safe_case}-{token}",
         "conversation_id": f"eval-conv-{safe_case}-{token}",
     }
 

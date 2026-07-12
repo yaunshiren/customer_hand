@@ -2,7 +2,16 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from app.api.schemas import MessageRequest
+from app.entry.models import Principal
 from app.entry.normalizer import normalize_message_request
+
+
+TEST_PRINCIPAL = Principal(
+    user_id="u1",
+    tenant_id="tenant_demo",
+    roles=["user"],
+    auth_type="api_key",
+)
 
 
 def test_normalize_message_request_builds_entry_task() -> None:
@@ -15,7 +24,7 @@ def test_normalize_message_request_builds_entry_task() -> None:
 
     @app.post("/probe")
     async def probe(req: MessageRequest, request: Request):
-        task = normalize_message_request(req, request)
+        task = normalize_message_request(req, request, principal=TEST_PRINCIPAL)
         return task.model_dump(mode="json")
 
     client = TestClient(app)
@@ -56,7 +65,7 @@ def test_normalizer_falls_back_invalid_source_to_api() -> None:
 
     @app.post("/probe")
     async def probe(req: MessageRequest, request: Request):
-        task = normalize_message_request(req, request)
+        task = normalize_message_request(req, request, principal=TEST_PRINCIPAL)
         return task.model_dump(mode="json")
 
     client = TestClient(app)
@@ -79,7 +88,7 @@ def test_normalizer_marks_tool_prompt_injection_as_degraded() -> None:
 
     @app.post("/probe")
     async def probe(req: MessageRequest, request: Request):
-        task = normalize_message_request(req, request)
+        task = normalize_message_request(req, request, principal=TEST_PRINCIPAL)
         return task.model_dump(mode="json")
 
     client = TestClient(app)
