@@ -9,7 +9,9 @@ from app.agent.tool_safety import AgentToolSafetyPolicy
 from app.actions.builtin import register_builtin_actions
 from app.core.tracker_store import InMemoryTrackerStore
 from app.dialogue.llm_generator import LLMCommandGenerator
-from app.entry.models import EntryTask
+from app.core.exceptions import ForbiddenError
+from app.entry.authorization import AuthorizedContext
+from app.entry.models import EntryTask, Principal
 from app.memory import MemoryEntityExtractor, QueryRewriter
 from app.memory import ConversationMemoryService
 from app.rag.answerer import KnowledgeAnswerer
@@ -48,13 +50,19 @@ class Agent:
         message: str,
         sender_id: str,
         conversation_id: str | None = None,
+        *,
+        principal: Principal,
     ) -> list[dict[str, Any]]:
+        authorization = AuthorizedContext.from_principal(principal)
+        if str(sender_id or "").strip() != authorization.owner_user_id:
+            raise ForbiddenError("permission denied")
         text = message.strip()
         return self._handle_normalized_message(
             text=text,
-            sender_id=sender_id,
+            sender_id=authorization.owner_user_id,
             conversation_id=conversation_id or sender_id,
             task=None,
+            authorization=authorization,
         )
 
     def handle_task(self, task: EntryTask) -> list[dict[str, Any]]:
@@ -71,11 +79,15 @@ class Agent:
                 }
             ]
 
+        authorization = AuthorizedContext.from_principal(task.principal)
+        if task.sender_id != authorization.owner_user_id:
+            raise ForbiddenError("permission denied")
         return self._handle_normalized_message(
             text=task.normalized_text,
             sender_id=task.sender_id,
             conversation_id=task.conversation_id,
             task=task,
+            authorization=authorization,
         )
 
     def _handle_normalized_message(
@@ -85,16 +97,18 @@ class Agent:
         sender_id: str,
         conversation_id: str,
         task: EntryTask | None,
+        authorization: AuthorizedContext,
     ) -> list[dict[str, Any]]:
         logger.info("agent.start sender_id=%s message_len=%d", sender_id, len(text))
         try:
-            tracker = self.tracker_store.get_or_create(sender_id)
+            tracker = self.tracker_store.get_or_create(authorization)
             entry_metadata = _entry_metadata(task)
             state = {
                 "sender_id": sender_id,
                 "message": text,
                 "tracker": tracker,
                 "tracker_store": self.tracker_store,
+                "authorization": authorization,
                 "flows": self.flows,
                 "llm_generator": self.llm_generator,
                 "knowledge_answerer": self.knowledge_answerer,

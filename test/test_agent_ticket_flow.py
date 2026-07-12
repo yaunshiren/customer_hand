@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.agent.agent import Agent
 from app.core.tracker_store import InMemoryTrackerStore
 from app.tickets.service import TicketService
+from tracker_test_support import trusted_test_principal
 
 
 class FakeTicketService(TicketService):
@@ -51,7 +52,11 @@ def test_agent_routes_ticket_command_to_ticket_service() -> None:
     agent.ticket_service = FakeTicketService()
     agent.llm_generator = FakeLLMGenerator()
 
-    response = agent.handle_message(message="我要人工处理", sender_id="ticket_sender_1")
+    response = agent.handle_message(
+        message="我要人工处理",
+        sender_id="ticket_sender_1",
+        principal=trusted_test_principal("ticket_sender_1"),
+    )
 
     assert len(response) == 1
     assert "人工" in response[0]["text"] or response[0]["text"]

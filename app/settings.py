@@ -13,7 +13,7 @@ DEFAULT_KNOWLEDGE_DIR = PROJECT_ROOT / "data" / "knowledge"
 
 
 class SettingsConfigurationError(RuntimeError):
-    """安全相关配置不满足启动不变量。"""
+    """Security-sensitive configuration violates a startup invariant."""
 
 
 class Settings(BaseSettings):
@@ -110,9 +110,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_api_key_principal_ids(self) -> Settings:
-        # Temporary S0-01 security invariant: Tracker Store currently uses
-        # sender_id as a global key. Until S0-03 introduces a tenant-aware
-        # Store, every server-configured principal_id must be globally unique.
+        # S0-03 no longer relies on global IDs for Tracker isolation. Keep this
+        # defense-in-depth invariant until the remaining sender-keyed Memory,
+        # Trace, and other stores complete their tenant-aware migration.
         seen_principal_ids: set[str] = set()
         for profile in self.api_key_principals.values():
             principal_id = str(
@@ -121,8 +121,7 @@ class Settings(BaseSettings):
             if not principal_id:
                 continue
             if principal_id in seen_principal_ids:
-                # Use a non-Pydantic configuration exception so validation
-                # output cannot include the input mapping's API Key values.
+                # Do not let Pydantic echo the API-key mapping in this error.
                 raise SettingsConfigurationError(
                     f"duplicate API key principal_id: {principal_id}"
                 )

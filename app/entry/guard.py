@@ -4,9 +4,9 @@ from fastapi import Request
 
 from app.api.schemas import MessageRequest
 from app.core.exceptions import ForbiddenError
+from app.entry.authorization import AuthorizedContext
 from app.entry.auth import (
     authenticate_request,
-    require_admin_or_owner,
     require_any_role,
 )
 from app.entry.models import EntryTask, Principal
@@ -15,7 +15,6 @@ from app.entry.rate_limit import enforce_rate_limit, enforce_rate_limit_for_prin
 
 MESSAGE_ROLES = {"user", "evaluator", "admin"}
 TRACKER_READ_ROLES = {"user", "admin"}
-TRUSTED_RESOURCE_AUTH_TYPES = {"api_key", "jwt"}
 
 
 async def prepare_message_task(req: MessageRequest, request: Request) -> EntryTask:
@@ -46,28 +45,29 @@ async def guard_eval_rag(request: Request) -> Principal:
     return principal
 
 
-def guard_tracker_reset(request: Request, sender_id: str) -> Principal:
-    principal = authenticate_request(request)
-    require_admin_or_owner(principal, sender_id)
-    return principal
+def guard_tracker_reset(request: Request, sender_id: str) -> AuthorizedContext:
+    return _guard_tracker_resource(request, sender_id)
 
 
-def guard_tracker_full(request: Request, sender_id: str) -> Principal:
+def guard_tracker_full(request: Request, sender_id: str) -> AuthorizedContext:
+    return _guard_tracker_resource(request, sender_id)
+
+
+def _guard_tracker_resource(
+    request: Request,
+    sender_id: str,
+) -> AuthorizedContext:
     principal = authenticate_request(request)
     require_any_role(principal, TRACKER_READ_ROLES)
-
-    # Dev tokens carry client-authored identity and role fields. They remain a
-    # compatibility option for other development flows, but are not reliable
-    # enough to authorize a full Tracker read.
     _require_trusted_principal(principal)
 
-    # Tracker currently has no tenant field. An admin role alone therefore
-    # cannot prove that an arbitrary Tracker belongs to the admin's tenant.
-    # Restrict reads to the authenticated identity until tenant ownership is
-    # represented by the resource model.
-    if principal.user_id.strip() != str(sender_id or "").strip():
+    context = AuthorizedContext.from_principal(principal)
+    target_owner = str(sender_id or "").strip()
+    if not target_owner:
         raise ForbiddenError("permission denied")
-    return principal
+    if target_owner != context.owner_user_id and not context.is_tenant_admin:
+        raise ForbiddenError("permission denied")
+    return context
 
 
 def guard_inspect_page(request: Request) -> Principal:
@@ -78,8 +78,7 @@ def guard_inspect_page(request: Request) -> Principal:
 
 
 def _require_trusted_principal(principal: Principal) -> None:
-    if principal.auth_type not in TRUSTED_RESOURCE_AUTH_TYPES:
-        raise ForbiddenError("permission denied")
+    AuthorizedContext.from_principal(principal)
 
 
 def guard_knowledge_reindex(request: Request) -> Principal:

@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.agent.agent import Agent  # noqa: E402
 from app.core.tracker_store import InMemoryTrackerStore  # noqa: E402
 from app.rag.answerer import KnowledgeAnswerer  # noqa: E402
+from tracker_test_support import tracker_context, trusted_test_principal  # noqa: E402
 
 
 class FakeKnowledgeAnswerer(KnowledgeAnswerer):
@@ -36,7 +37,11 @@ def _agent_with_llm_disabled() -> tuple[Agent, InMemoryTrackerStore]:
 def test_intent_policy_routes_feature_suggestion_to_ticket_without_rag() -> None:
     agent, _ = _agent_with_llm_disabled()
 
-    response = agent.handle_message("希望 APP 能加个深色模式", "policy_feature_user")
+    response = agent.handle_message(
+        "希望 APP 能加个深色模式",
+        "policy_feature_user",
+        principal=trusted_test_principal("policy_feature_user"),
+    )
     metadata = response[0]["metadata"]
 
     assert metadata["route"] == "ticket"
@@ -50,8 +55,12 @@ def test_intent_policy_routes_feature_suggestion_to_ticket_without_rag() -> None
 def test_intent_policy_routes_logistics_policy_to_rag_without_starting_flow() -> None:
     agent, store = _agent_with_llm_disabled()
 
-    response = agent.handle_message("我能改收货地址吗？已经发货了", "policy_logistics_user")
-    tracker = store.retrieve("policy_logistics_user")
+    response = agent.handle_message(
+        "我能改收货地址吗？已经发货了",
+        "policy_logistics_user",
+        principal=trusted_test_principal("policy_logistics_user"),
+    )
+    tracker = store.retrieve(tracker_context("policy_logistics_user"))
     metadata = response[0]["metadata"]
 
     assert tracker is not None
@@ -66,8 +75,12 @@ def test_intent_policy_routes_logistics_policy_to_rag_without_starting_flow() ->
 def test_intent_policy_routes_fault_report_to_ticket_without_order_slot() -> None:
     agent, store = _agent_with_llm_disabled()
 
-    response = agent.handle_message("我的扫地机充不进电了", "policy_fault_user")
-    tracker = store.retrieve("policy_fault_user")
+    response = agent.handle_message(
+        "我的扫地机充不进电了",
+        "policy_fault_user",
+        principal=trusted_test_principal("policy_fault_user"),
+    )
+    tracker = store.retrieve(tracker_context("policy_fault_user"))
     metadata = response[0]["metadata"]
 
     assert tracker is not None

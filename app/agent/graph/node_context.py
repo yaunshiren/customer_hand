@@ -3,6 +3,8 @@ from __future__ import annotations
 from app.agent.graph.state import AgentState
 from app.agent.graph.node_services import _build_memory_entity_extractor
 from app.agent.graph.node_tracker import _normalize_tracker
+from app.core.exceptions import ForbiddenError
+from app.entry.authorization import AuthorizedContext
 
 
 def load_context(state: AgentState) -> AgentState:
@@ -46,9 +48,12 @@ def load_context(state: AgentState) -> AgentState:
 def save_context(state: AgentState) -> AgentState:
     tracker = state.get("tracker")
     tracker_store = state.get("tracker_store")
+    authorization = state.get("authorization")
 
     if tracker_store is not None and tracker is not None:
-        tracker_store.save(tracker)
+        if not isinstance(authorization, AuthorizedContext):
+            raise ForbiddenError("permission denied")
+        tracker_store.save(authorization, tracker)
 
     return {
         **state,

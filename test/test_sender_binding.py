@@ -6,13 +6,32 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.tracker_store import InMemoryTrackerStore
-from app.entry.models import EntryTask
+from app.entry.authorization import AuthorizedContext
+from app.entry.models import EntryTask, Principal
 from app.entry.rate_limit_store import RateLimitDecision
 from main import app
 
 
 AUTH_USER = {"Authorization": "Bearer demo-user-key"}
 AUTH_ADMIN = {"Authorization": "Bearer demo-admin-key"}
+
+
+def _context(
+    user_id: str,
+    *,
+    tenant_id: str = "tenant_demo",
+    roles: list[str] | None = None,
+) -> AuthorizedContext:
+    return AuthorizedContext.from_principal(
+        Principal(
+            principal_id=user_id,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            roles=roles or ["user"],
+            source="test_setup",
+            auth_type="system",
+        )
+    )
 
 
 class SideEffectSpyAgent:
@@ -31,7 +50,9 @@ class SideEffectSpyAgent:
         self.agent_calls += 1
         self.tasks.append(task)
         self.tracker_writes += 1
-        tracker = self.tracker_store.get_or_create(task.sender_id)
+        tracker = self.tracker_store.get_or_create(
+            AuthorizedContext.from_principal(task.principal)
+        )
         tracker.update_with_user_message(task.normalized_text)
 
         # These counters model the downstream components that become reachable
@@ -152,7 +173,9 @@ def test_client_authored_dev_token_cannot_establish_message_sender(
     assert response.status_code == 403
     assert response.json()["error_code"] == "forbidden"
     assert response.json()["trace_id"] == "trace-dev-token-sender"
-    assert tracker_store.retrieve("victim") is None
+    assert tracker_store.retrieve(
+        _context("victim", tenant_id="tenant_b")
+    ) is None
     _assert_no_downstream_side_effects(agent, recorder, limiter)
 
 
@@ -190,8 +213,8 @@ def test_missing_sender_uses_authenticated_principal_and_ignores_spoofed_context
     assert task.principal.tenant_id == "tenant_demo"
     assert task.principal.roles == ["user"]
     assert response.json()[0]["recipient_id"] == "user_001"
-    assert tracker_store.retrieve("user_001") is not None
-    assert tracker_store.retrieve("victim") is None
+    assert tracker_store.retrieve(_context("user_001")) is not None
+    assert tracker_store.retrieve(_context("victim")) is None
     assert recorder.starts[0]["sender_id"] == "user_001"
     assert recorder.successes[0]["sender_id"] == "user_001"
     assert limiter.calls == 1
@@ -217,7 +240,8 @@ def test_mismatched_sender_is_403_without_any_state_side_effect_or_existence_lea
     sender_state,
 ) -> None:
     agent, tracker_store, recorder, limiter = sender_state
-    existing = tracker_store.get_or_create("victim_existing")
+    victim_existing_context = _context("victim_existing")
+    existing = tracker_store.get_or_create(victim_existing_context)
     existing.update_with_user_message("existing private state")
     existing_snapshot = existing.to_dict()
     client = TestClient(app)
@@ -245,8 +269,8 @@ def test_mismatched_sender_is_403_without_any_state_side_effect_or_existence_lea
     assert missing_response.json()["trace_id"] == "trace-sender-missing"
     assert existing_response.headers["X-Trace-Id"] == "trace-sender-existing"
     assert missing_response.headers["X-Trace-Id"] == "trace-sender-missing"
-    assert tracker_store.retrieve("victim_existing").to_dict() == existing_snapshot
-    assert tracker_store.retrieve("victim_missing") is None
+    assert tracker_store.retrieve(victim_existing_context).to_dict() == existing_snapshot
+    assert tracker_store.retrieve(_context("victim_missing")) is None
     _assert_no_downstream_side_effects(agent, recorder, limiter)
 
 
@@ -285,7 +309,7 @@ def test_spoofed_role_tenant_owner_scope_cannot_authorize_mismatched_sender(
     assert response.status_code == 403
     assert response.json()["error_code"] == "forbidden"
     assert response.json()["trace_id"] == "trace-sender-spoof"
-    assert tracker_store.retrieve("victim") is None
+    assert tracker_store.retrieve(_context("victim")) is None
     _assert_no_downstream_side_effects(agent, recorder, limiter)
 
 
@@ -302,5 +326,5 @@ def test_admin_cannot_proxy_another_user_through_sender_id(sender_state) -> None
     assert response.status_code == 403
     assert response.json()["error_code"] == "forbidden"
     assert response.json()["trace_id"] == "trace-admin-proxy"
-    assert tracker_store.retrieve("user_001") is None
+    assert tracker_store.retrieve(_context("user_001")) is None
     _assert_no_downstream_side_effects(agent, recorder, limiter)

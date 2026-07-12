@@ -6,6 +6,7 @@ from app.agent.agent import Agent
 from app.core.tracker_store import InMemoryTrackerStore
 from app.intent import IntentCandidate, IntentResult
 from app.rag.answerer import KnowledgeAnswerer
+from tracker_test_support import trusted_test_principal
 
 
 def _intent(intent_id: str, intent_name: str, intent_type: str) -> IntentResult:
@@ -76,7 +77,11 @@ def test_agent_response_metadata_exposes_business_classification(
     tool: str,
     arguments: dict[str, str],
 ) -> None:
-    response = _agent().handle_message(message, "business_user")
+    response = _agent().handle_message(
+        message,
+        "business_user",
+        principal=trusted_test_principal("business_user"),
+    )
     metadata = response[0]["metadata"]
 
     assert metadata["business_question_type"] == question_type

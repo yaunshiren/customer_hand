@@ -8,6 +8,7 @@ from app.agent.graph import nodes
 from app.core.tracker_store import InMemoryTrackerStore
 from app.rag.answerer import KnowledgeAnswerer
 from app.tools import MockBusinessToolService, MockCustomerServiceStore, ToolExecutionPolicy
+from tracker_test_support import trusted_test_principal
 
 
 class FakeKnowledgeAnswerer(KnowledgeAnswerer):
@@ -45,6 +46,7 @@ def test_tool_timeout_degrades_without_crashing() -> None:
     response = _agent(service).handle_message(
         "\u67e5\u4e00\u4e0b\u8ba2\u5355 10001 \u5230\u54ea\u4e86",
         "tool_timeout_user",
+        principal=trusted_test_principal("tool_timeout_user"),
     )
     metadata = response[0]["metadata"]
 
@@ -70,6 +72,7 @@ def test_empty_tool_result_degrades_without_crashing() -> None:
     response = _agent(service).handle_message(
         "\u5e2e\u6211\u67e5\u8be2\u8ba2\u5355 10001 \u7684\u72b6\u6001",
         "tool_empty_user",
+        principal=trusted_test_principal("tool_empty_user"),
     )
     metadata = response[0]["metadata"]
 
@@ -94,6 +97,7 @@ def test_tool_exception_degrades_without_crashing() -> None:
     response = _agent(service).handle_message(
         "\u67e5\u4e00\u4e0b\u8ba2\u5355 10001 \u5230\u54ea\u4e86",
         "tool_exception_user",
+        principal=trusted_test_principal("tool_exception_user"),
     )
     metadata = response[0]["metadata"]
 
@@ -116,6 +120,7 @@ def test_router_level_tool_exception_records_trace(monkeypatch: Any) -> None:
     response = _agent(RaisingToolService()).handle_message(
         "\u67e5\u4e00\u4e0b\u8ba2\u5355 10001 \u5230\u54ea\u4e86",
         "tool_router_exception_user",
+        principal=trusted_test_principal("tool_router_exception_user"),
     )
     metadata = response[0]["metadata"]
 

@@ -3,8 +3,22 @@ from __future__ import annotations
 from app.agent.graph.nodes import generate_response, load_context
 from app.core.tracker import DialogueStateTracker
 from app.core.tracker_store import InMemoryTrackerStore
+from app.entry.authorization import AuthorizedContext
+from app.entry.models import Principal
 from app.memory import ConversationMemory, MemoryEntityExtractor, ProductCatalog, QueryRewriter
 from app.settings import settings
+
+
+def _tracker_context(user_id: str) -> AuthorizedContext:
+    return AuthorizedContext.from_principal(
+        Principal(
+            user_id=user_id,
+            tenant_id="tenant_test",
+            roles=["user"],
+            source="test_setup",
+            auth_type="system",
+        )
+    )
 
 
 def test_conversation_memory_default_contract() -> None:
@@ -70,13 +84,14 @@ def test_tracker_from_dict_restores_memory_from_legacy_events() -> None:
 
 def test_store_tracker_preserves_memory_after_serialized_restore() -> None:
     store = InMemoryTrackerStore(memory_turn_limit=2)
-    tracker = store.get_or_create("serialized_memory_user")
+    context = _tracker_context("serialized_memory_user")
+    tracker = store.get_or_create(context)
     tracker.update_with_user_message("hello")
     tracker.add_bot_message("hi")
-    store.save(tracker)
+    store.save(context, tracker)
 
-    store._data["serialized_memory_user"] = tracker.to_dict()
-    restored = store.retrieve("serialized_memory_user")
+    store._data[("tenant_test", "serialized_memory_user")] = tracker.to_dict()
+    restored = store.retrieve(context)
 
     assert restored is not None
     assert restored.memory.to_dict()["recent_turns"][0]["assistant"] == "hi"

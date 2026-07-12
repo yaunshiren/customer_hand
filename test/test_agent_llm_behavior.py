@@ -13,6 +13,7 @@ from app.core.tracker_store import InMemoryTrackerStore  # noqa: E402
 from app.dialogue.command_parser import CommandParser  # noqa: E402
 from app.dialogue.command_processor import CommandProcessor  # noqa: E402
 from app.dialogue.llm_generator import DEFAULT_CHITCHAT_REPLY  # noqa: E402
+from tracker_test_support import tracker_context, trusted_test_principal  # noqa: E402
 
 
 class FakeLLMCommandGenerator:
@@ -68,8 +69,12 @@ def test_llm_chitchat_returns_direct_reply() -> None:
         f'{{"commands":[{{"type":"chitchat","text":"{reply_text}"}}]}}'
     )
 
-    response = agent.handle_message("你好呀宝宝", "llm_chitchat_user")
-    tracker = store.retrieve("llm_chitchat_user")
+    response = agent.handle_message(
+        "你好呀宝宝",
+        "llm_chitchat_user",
+        principal=trusted_test_principal("llm_chitchat_user"),
+    )
+    tracker = store.retrieve(tracker_context("llm_chitchat_user"))
 
     assert len(response) == 1
     assert response[0]["text"]
@@ -85,8 +90,12 @@ def test_llm_start_flow_postsale_asks_order_id() -> None:
         '{"commands":[{"type":"start_flow","flow_id":"postsale"}]}'
     )
 
-    response = agent.handle_message("我买的这件东西不想要了", "llm_postsale_user")
-    tracker = store.retrieve("llm_postsale_user")
+    response = agent.handle_message(
+        "我买的这件东西不想要了",
+        "llm_postsale_user",
+        principal=trusted_test_principal("llm_postsale_user"),
+    )
+    tracker = store.retrieve(tracker_context("llm_postsale_user"))
 
     assert tracker is not None
     assert len(response) == 1
@@ -116,9 +125,10 @@ def test_start_flow_after_knowledge_answer_does_not_repeat_rag() -> None:
         }
     )
 
-    agent.handle_message("退货规则是什么", "regression_user")
-    response = agent.handle_message("我要退货", "regression_user")
-    tracker = store.retrieve("regression_user")
+    principal = trusted_test_principal("regression_user")
+    agent.handle_message("退货规则是什么", "regression_user", principal=principal)
+    response = agent.handle_message("我要退货", "regression_user", principal=principal)
+    tracker = store.retrieve(tracker_context("regression_user"))
 
     assert tracker is not None
     assert len(response) == 1
@@ -138,9 +148,14 @@ def test_chitchat_during_active_flow_does_not_fill_order_id() -> None:
         }
     )
 
-    agent.handle_message("return item", "side_question_user")
-    response = agent.handle_message("what products are available", "side_question_user")
-    tracker = store.retrieve("side_question_user")
+    principal = trusted_test_principal("side_question_user")
+    agent.handle_message("return item", "side_question_user", principal=principal)
+    response = agent.handle_message(
+        "what products are available",
+        "side_question_user",
+        principal=principal,
+    )
+    tracker = store.retrieve(tracker_context("side_question_user"))
 
     assert tracker is not None
     assert response[0]["text"] == "We sell home goods."
@@ -159,9 +174,14 @@ def test_active_flow_rejects_invalid_order_id_text_when_llm_unhandled() -> None:
         }
     )
 
-    agent.handle_message("return item", "invalid_slot_user")
-    response = agent.handle_message("what products are available", "invalid_slot_user")
-    tracker = store.retrieve("invalid_slot_user")
+    principal = trusted_test_principal("invalid_slot_user")
+    agent.handle_message("return item", "invalid_slot_user", principal=principal)
+    response = agent.handle_message(
+        "what products are available",
+        "invalid_slot_user",
+        principal=principal,
+    )
+    tracker = store.retrieve(tracker_context("invalid_slot_user"))
 
     assert tracker is not None
     assert response[0]["text"]
@@ -180,9 +200,10 @@ def test_postsale_flow_finishes_after_confirming_order_id() -> None:
         }
     )
 
-    agent.handle_message("return item", "finish_flow_user")
-    response = agent.handle_message("A1234", "finish_flow_user")
-    tracker = store.retrieve("finish_flow_user")
+    principal = trusted_test_principal("finish_flow_user")
+    agent.handle_message("return item", "finish_flow_user", principal=principal)
+    response = agent.handle_message("A1234", "finish_flow_user", principal=principal)
+    tracker = store.retrieve(tracker_context("finish_flow_user"))
 
     assert tracker is not None
     assert response[0]["text"]

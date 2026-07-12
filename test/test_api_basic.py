@@ -16,6 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 os.environ["LLM_ENABLED"] = "false"
 
 from main import app  # noqa: E402
+from app.entry.authorization import AuthorizedContext  # noqa: E402
 from app.entry.idempotency import reset_idempotency_store  # noqa: E402
 from app.entry.rate_limit import reset_rate_limiter  # noqa: E402
 
@@ -29,7 +30,9 @@ class FakeAgent:
         self.tracker_store = tracker_store
 
     def handle_task(self, task) -> list[dict[str, object]]:
-        tracker = self.tracker_store.get_or_create(task.sender_id)
+        tracker = self.tracker_store.get_or_create(
+            AuthorizedContext.from_principal(task.principal)
+        )
         tracker.update_with_user_message(task.normalized_text)
         tracker.add_bot_message("ok")
         return [{"recipient_id": task.sender_id, "text": "ok", "metadata": {"route": "test"}}]

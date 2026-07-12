@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from app.agent.agent import Agent
 from app.core.tracker_store import InMemoryTrackerStore
+from app.entry.models import Principal
 from app.settings import settings
 
 
@@ -45,6 +46,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--sender-id",
         default=f"dialogue_demo_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
         help="Conversation sender id. The same id is reused for all turns.",
+    )
+    parser.add_argument(
+        "--tenant-id",
+        required=True,
+        help="Explicit trusted tenant scope for this local system-principal run.",
     )
     parser.add_argument(
         "--llm-mode",
@@ -89,6 +95,15 @@ def main() -> int:
     if args.llm_mode == "disabled":
         _disable_llm(agent)
 
+    principal = Principal(
+        principal_id=args.sender_id,
+        user_id=args.sender_id,
+        tenant_id=args.tenant_id,
+        roles=["user"],
+        source="dialogue_demo",
+        auth_type="system",
+    )
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"sender_id={args.sender_id}")
@@ -101,7 +116,11 @@ def main() -> int:
     with output_path.open("w", encoding="utf-8") as writer:
         for index, message in enumerate(messages, start=1):
             started_at = time.perf_counter()
-            responses = agent.handle_message(message, args.sender_id)
+            responses = agent.handle_message(
+                message,
+                args.sender_id,
+                principal=principal,
+            )
             latency_ms = int((time.perf_counter() - started_at) * 1000)
 
             assistant_text = _join_response_text(responses)

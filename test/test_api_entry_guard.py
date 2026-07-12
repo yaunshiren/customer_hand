@@ -169,7 +169,7 @@ def test_admin_endpoint_without_admin_role_returns_403(api_state) -> None:
     _assert_error_shape(response, status_code=403, error_code="forbidden")
 
 
-def test_tracker_reset_allows_owner_and_rejects_non_owner(api_state) -> None:
+def test_tracker_reset_hides_missing_owner_resource_and_rejects_non_owner(api_state) -> None:
     client = TestClient(app)
 
     owner = client.post(
@@ -181,7 +181,8 @@ def test_tracker_reset_allows_owner_and_rejects_non_owner(api_state) -> None:
         headers=AUTH_USER,
     )
 
-    assert owner.status_code == 200
+    assert owner.status_code == 404
+    assert owner.json()["error_code"] == "not_found"
     assert non_owner.status_code == 403
 
 

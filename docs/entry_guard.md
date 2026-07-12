@@ -72,6 +72,9 @@ API_KEY_PRINCIPALS={"demo-user-key":{"principal_id":"user_001","tenant_id":"tena
 trace、错误响应或测试快照。旧 dev token 仍可由认证解析器在非生产环境且
 `AUTH_ALLOW_DEV_TOKENS=true` 时解析，但消息 sender 和受保护资源 guard 不把
 client-authored dev token 视为可靠 Principal；生产环境始终拒绝 dev token。
+Tracker 隔离依赖服务端 Principal 的 `(tenant_id, principal_id)` scope，而不是全局
+ID 唯一性。由于 Memory、Trace 等范围外存储尚未全部 tenant-aware，启动配置仍将
+principal ID 全局唯一作为防御纵深；完整多租户迁移完成后再评估解除该约束。
 
 ## 5. 权限策略
 
@@ -80,9 +83,10 @@ client-authored dev token 视为可靠 Principal；生产环境始终拒绝 dev 
 | `/api/messages` | user / evaluator / admin | 普通消息入口 |
 | `/api/eval/rag` | evaluator / admin | RAG 评测 |
 | `/api/knowledge/reindex` | admin | 重建索引，需要幂等 |
-| tracker reset | owner / admin | 仅本人或管理员 |
-| `/health`、`/inspect`、knowledge status | 公开 | 保持兼容 |
-| tracker 查询 | 公开 | 当前兼容行为，存在已知隐私风险 |
+| tracker reset | owner / tenant admin | 仅本人或同 tenant 管理员；资源不存在按 404 隐藏 |
+| `/health` | 公开 | 健康检查 |
+| `/inspect` | 本地公开；其他环境 admin | 页面调用的 Tracker API 仍强制认证和 tenant 授权 |
+| tracker full | owner / tenant admin | Store 只在 authenticated Principal 的 tenant 内查询 |
 
 ### Message sender binding
 
@@ -94,6 +98,23 @@ Memory, RAG, Tool, or Ticket execution. Admin callers follow the same rule; the
 normal message API does not support impersonation. Tenant, role, owner, and scope
 values from headers, query parameters, body fields, or metadata never change this
 binding.
+
+### Tracker tenant/owner boundary
+
+Tracker runtime state carries a server-owned `tenant_id` and `owner_user_id`.
+The in-memory Store key is `(tenant_id, owner_user_id)`, and every create,
+retrieve, save, and delete operation requires an immutable `AuthorizedContext`
+derived from an API-key/JWT Principal or an explicit server-side system
+Principal. Ordinary users may only target their own owner ID. A tenant admin
+may target another owner only inside the admin's authenticated tenant; no
+platform-wide admin behavior is implied.
+
+Legacy sender-only entries and serialized Trackers without matching tenant and
+owner fields are not adopted or searched. Client headers, query parameters,
+body fields, metadata, prompt text, and tool arguments cannot select tenant or
+owner. Dev tokens cannot create a trusted Tracker context. Local full debug
+payloads remain limited to a server-configured admin reading its own Tracker;
+other authorized callers receive the minimal status response.
 
 ## 6. 幂等策略
 
@@ -309,8 +330,7 @@ Prompt Injection 风险示例：
 - 限流和幂等均支持 Redis 共享存储；memory 后端仅适合单实例。
 - Redis 与 MySQL 之间不是同一个事务，仍存在业务写入完成但幂等完成快照写入失败的
   极小故障窗口；当前会保留 in_progress 占位，避免立即重复写入。
-- tracker 查询接口当前保持公开，可能泄露会话状态；后续应增加 owner/admin 约束，
-  并在启用前评估现有调试和评测调用方。
+- Tracker 当前仅使用进程内 tenant-aware Store；数据库级多租户迁移仍需后续阶段完成。
 - 当前幂等基于入口 scenario/capability；Tool 级幂等留待 Skill Runtime 收口。
 
 ## 11. 面试解释版本

@@ -7,6 +7,7 @@ from app.core.tracker_store import InMemoryTrackerStore
 from app.llm.client import LLMClient
 from app.llm.prompts import PromptBuilder
 from app.rag.answerer import KnowledgeAnswerer
+from tracker_test_support import trusted_test_principal
 
 
 class ExplodingLLMClient:
@@ -48,6 +49,7 @@ def test_business_tool_route_skips_intent_and_command_llm_calls() -> None:
     response = _agent_with_exploding_llm().handle_message(
         "\u67e5\u4e00\u4e0b\u8ba2\u5355 10001 \u5230\u54ea\u4e86",
         "token_budget_tool_user",
+        principal=trusted_test_principal("token_budget_tool_user"),
     )
     metadata = response[0]["metadata"]
 
@@ -60,6 +62,7 @@ def test_business_rag_route_skips_intent_and_command_llm_calls() -> None:
     response = _agent_with_exploding_llm().handle_message(
         "\u600e\u4e48\u5f00\u53d1\u7968",
         "token_budget_rag_user",
+        principal=trusted_test_principal("token_budget_rag_user"),
     )
     metadata = response[0]["metadata"]
 

@@ -5,6 +5,7 @@ from typing import Any
 from app.agent.agent import Agent
 from app.core.tracker_store import InMemoryTrackerStore
 from app.rag.answerer import KnowledgeAnswerer
+from tracker_test_support import trusted_test_principal
 
 
 class FakeKnowledgeAnswerer(KnowledgeAnswerer):
@@ -27,8 +28,17 @@ def _agent() -> Agent:
     return agent
 
 
+def _handle(agent: Agent, message: str, sender_id: str):
+    return agent.handle_message(
+        message,
+        sender_id,
+        principal=trusted_test_principal(sender_id),
+    )
+
+
 def test_acceptance_logistics_query_calls_query_logistics() -> None:
-    response = _agent().handle_message(
+    response = _handle(
+        _agent(),
         "\u67e5\u4e00\u4e0b\u8ba2\u5355 10001 \u5230\u54ea\u4e86",
         "acceptance_logistics_user",
     )
@@ -43,7 +53,8 @@ def test_acceptance_logistics_query_calls_query_logistics() -> None:
 
 
 def test_acceptance_complaint_creates_ticket() -> None:
-    response = _agent().handle_message(
+    response = _handle(
+        _agent(),
         "\u6211\u8981\u6295\u8bc9\u5ba2\u670d\u6001\u5ea6\u5dee",
         "acceptance_ticket_user",
     )
@@ -58,7 +69,8 @@ def test_acceptance_complaint_creates_ticket() -> None:
 
 
 def test_acceptance_invoice_policy_uses_rag() -> None:
-    response = _agent().handle_message(
+    response = _handle(
+        _agent(),
         "\u600e\u4e48\u5f00\u53d1\u7968",
         "acceptance_invoice_policy_user",
     )
@@ -73,10 +85,12 @@ def test_acceptance_invoice_policy_uses_rag() -> None:
 
 def test_acceptance_invoice_creation_confirms_then_calls_create_invoice() -> None:
     agent = _agent()
+    principal = trusted_test_principal("acceptance_invoice_user")
 
     first = agent.handle_message(
         "\u8ba2\u5355 10001 \u5f00\u516c\u53f8\u53d1\u7968",
         "acceptance_invoice_user",
+        principal=principal,
     )
     first_metadata = first[0]["metadata"]
 
@@ -86,7 +100,11 @@ def test_acceptance_invoice_creation_confirms_then_calls_create_invoice() -> Non
     assert first_metadata["tool_safety_decision"] == "confirmation_required"
     assert first_metadata.get("tool_name") is None
 
-    second = agent.handle_message("\u786e\u8ba4", "acceptance_invoice_user")
+    second = agent.handle_message(
+        "\u786e\u8ba4",
+        "acceptance_invoice_user",
+        principal=principal,
+    )
     second_metadata = second[0]["metadata"]
 
     assert second_metadata["route"] == "tool"
@@ -108,6 +126,7 @@ def test_acceptance_tool_failure_degrades_without_crashing() -> None:
     response = agent.handle_message(
         "\u67e5\u4e00\u4e0b\u8ba2\u5355 10001 \u5230\u54ea\u4e86",
         "acceptance_tool_failure_user",
+        principal=trusted_test_principal("acceptance_tool_failure_user"),
     )
     metadata = response[0]["metadata"]
 

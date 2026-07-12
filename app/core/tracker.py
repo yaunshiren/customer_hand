@@ -11,9 +11,20 @@ def now_iso() -> str:
 
 
 class DialogueStateTracker:
-    def __init__(self, sender_id: str, *, memory_turn_limit: int = DEFAULT_RECENT_TURN_LIMIT):
+    def __init__(
+        self,
+        sender_id: str,
+        *,
+        tenant_id: str | None = None,
+        owner_user_id: str | None = None,
+        memory_turn_limit: int = DEFAULT_RECENT_TURN_LIMIT,
+    ):
         timestamp = now_iso()
         self.sender_id = sender_id
+        # None marks legacy state whose tenant/owner cannot be proven. The
+        # tenant-aware Store never assigns such state to a current request.
+        self.tenant_id = tenant_id
+        self.owner_user_id = owner_user_id
         self.memory = ConversationMemory(recent_turn_limit=memory_turn_limit)
         self.slots: dict[str, Any] = {}
         self.events: list[dict[str, Any]] = []
@@ -78,6 +89,8 @@ class DialogueStateTracker:
     def to_dict(self) -> dict[str, Any]:
         return {
             "sender_id": self.sender_id,
+            "tenant_id": self.tenant_id,
+            "owner_user_id": self.owner_user_id,
             "memory": self.memory.to_dict(),
             "slots": dict(self.slots),
             "events": list(self.events),
@@ -100,7 +113,12 @@ class DialogueStateTracker:
         *,
         memory_turn_limit: int = DEFAULT_RECENT_TURN_LIMIT,
     ) -> "DialogueStateTracker":
-        tracker = cls(sender_id=str(data.get("sender_id", "default")), memory_turn_limit=memory_turn_limit)
+        tracker = cls(
+            sender_id=str(data.get("sender_id", "default")),
+            tenant_id=_optional_identity(data.get("tenant_id")),
+            owner_user_id=_optional_identity(data.get("owner_user_id")),
+            memory_turn_limit=memory_turn_limit,
+        )
         tracker.slots = dict(data.get("slots") or {})
         tracker.events = list(data.get("events") or [])
         if isinstance(data.get("memory"), dict):
@@ -118,3 +136,8 @@ class DialogueStateTracker:
         tracker.created_at = data.get("created_at") or tracker.created_at
         tracker.updated_at = data.get("updated_at") or tracker.updated_at
         return tracker
+
+
+def _optional_identity(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None

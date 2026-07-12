@@ -6,6 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.tracker_store import InMemoryTrackerStore
+from app.entry.authorization import AuthorizedContext
+from app.entry.models import Principal
 from app.settings import settings
 from main import app
 
@@ -47,8 +49,33 @@ def tracker_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryTrackerStore:
         app.state.tracker_store = original_store
 
 
-def _create_sensitive_tracker(store: InMemoryTrackerStore, sender_id: str) -> None:
-    tracker = store.get_or_create(sender_id)
+def _authorization(
+    sender_id: str,
+    *,
+    tenant_id: str = "tenant_demo",
+    roles: list[str] | None = None,
+) -> AuthorizedContext:
+    return AuthorizedContext.from_principal(
+        Principal(
+            principal_id=sender_id,
+            user_id=sender_id,
+            tenant_id=tenant_id,
+            roles=roles or ["user"],
+            source="test_setup",
+            auth_type="system",
+        )
+    )
+
+
+def _create_sensitive_tracker(
+    store: InMemoryTrackerStore,
+    sender_id: str,
+    *,
+    tenant_id: str = "tenant_demo",
+) -> None:
+    tracker = store.get_or_create(
+        _authorization(sender_id, tenant_id=tenant_id)
+    )
     tracker.update_with_user_message("private customer message")
     tracker.add_bot_message("private assistant reply")
     tracker.set_slot("order_id", "ORDER-SECRET")
@@ -198,7 +225,7 @@ def test_tracker_full_non_local_admin_owner_receives_only_minimal_status(
     assert "ORDER-SECRET" not in response.text
 
 
-def test_tracker_full_admin_access_to_other_owner_fails_closed_without_tenant_scope(
+def test_tracker_full_same_tenant_admin_access_is_minimized(
     tracker_store: InMemoryTrackerStore,
 ) -> None:
     _create_sensitive_tracker(tracker_store, "user_001")
@@ -206,14 +233,18 @@ def test_tracker_full_admin_access_to_other_owner_fails_closed_without_tenant_sc
 
     response = client.get("/api/tracker/user_001/full", headers=AUTH_ADMIN)
 
-    assert response.status_code == 403
-    assert response.json()["error_code"] == "forbidden"
+    assert response.status_code == 200
+    assert set(response.json()["tracker"]) == {"flow_status", "updated_at"}
 
 
 def test_tracker_full_tenant_a_admin_cannot_read_tenant_b_tracker(
     tracker_store: InMemoryTrackerStore,
 ) -> None:
-    _create_sensitive_tracker(tracker_store, "admin_tenant_b")
+    _create_sensitive_tracker(
+        tracker_store,
+        "admin_tenant_b",
+        tenant_id="tenant_b",
+    )
     client = TestClient(app)
 
     cross_tenant = client.get(
@@ -225,7 +256,8 @@ def test_tracker_full_tenant_a_admin_cannot_read_tenant_b_tracker(
         headers=AUTH_TENANT_B_ADMIN,
     )
 
-    assert cross_tenant.status_code == 403
+    assert cross_tenant.status_code == 404
+    assert cross_tenant.json()["error_code"] == "not_found"
     assert tenant_b_owner.status_code == 200
     assert "memory" in tenant_b_owner.json()["tracker"]
 

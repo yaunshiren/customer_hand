@@ -8,6 +8,7 @@ from app.agent.tool_safety import AgentToolSafetyPolicy
 from app.core.tracker_store import InMemoryTrackerStore
 from app.rag.answerer import KnowledgeAnswerer
 from app.tools import MockBusinessToolService
+from tracker_test_support import trusted_test_principal
 
 
 class FakeKnowledgeAnswerer(KnowledgeAnswerer):
@@ -36,10 +37,12 @@ def _agent(policy: AgentToolSafetyPolicy | None = None) -> Agent:
 
 def test_high_risk_invoice_requires_confirmation_then_executes() -> None:
     agent = _agent()
+    principal = trusted_test_principal("safe_invoice_user")
 
     first = agent.handle_message(
         "\u8ba2\u5355 10001 \u5f00\u516c\u53f8\u53d1\u7968",
         "safe_invoice_user",
+        principal=principal,
     )
     first_metadata = first[0]["metadata"]
 
@@ -50,7 +53,11 @@ def test_high_risk_invoice_requires_confirmation_then_executes() -> None:
     assert first_metadata.get("tool_name") is None
     assert "\u786e\u8ba4" in first[0]["text"]
 
-    second = agent.handle_message("\u786e\u8ba4", "safe_invoice_user")
+    second = agent.handle_message(
+        "\u786e\u8ba4",
+        "safe_invoice_user",
+        principal=principal,
+    )
     second_metadata = second[0]["metadata"]
 
     assert second_metadata["route"] == "tool"
@@ -63,12 +70,18 @@ def test_high_risk_invoice_requires_confirmation_then_executes() -> None:
 
 def test_pending_high_risk_tool_can_be_cancelled_without_execution() -> None:
     agent = _agent()
+    principal = trusted_test_principal("cancel_invoice_user")
 
     agent.handle_message(
         "\u8ba2\u5355 10001 \u5f00\u516c\u53f8\u53d1\u7968",
         "cancel_invoice_user",
+        principal=principal,
     )
-    response = agent.handle_message("\u53d6\u6d88", "cancel_invoice_user")
+    response = agent.handle_message(
+        "\u53d6\u6d88",
+        "cancel_invoice_user",
+        principal=principal,
+    )
     metadata = response[0]["metadata"]
 
     assert metadata["route"] == "clarify"

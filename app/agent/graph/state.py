@@ -26,6 +26,7 @@ class AgentState(TypedDict, total=False):
     # Persistent conversation context.
     tracker: Any
     tracker_store: Any
+    authorization: Any
 
     # Runtime dependencies injected by Agent.
     flows: dict[str, Any]

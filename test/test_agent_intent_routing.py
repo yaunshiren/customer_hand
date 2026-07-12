@@ -6,6 +6,7 @@ from app.agent.agent import Agent
 from app.core.tracker_store import InMemoryTrackerStore
 from app.intent import IntentCandidate, IntentResult
 from app.rag.answerer import KnowledgeAnswerer
+from tracker_test_support import tracker_context, trusted_test_principal
 
 
 def _intent(intent_id: str, intent_name: str, intent_type: str) -> IntentResult:
@@ -85,8 +86,13 @@ def test_agent_intent_routing_acceptance_cases(
 ) -> None:
     agent, store = _agent()
 
-    response = agent.handle_message(message, f"routing_{case_id}")
-    tracker = store.retrieve(f"routing_{case_id}")
+    sender_id = f"routing_{case_id}"
+    response = agent.handle_message(
+        message,
+        sender_id,
+        principal=trusted_test_principal(sender_id),
+    )
+    tracker = store.retrieve(tracker_context(sender_id))
     metadata = response[0]["metadata"]
 
     assert tracker is not None
@@ -102,10 +108,18 @@ def test_agent_intent_routing_acceptance_cases(
 def test_agent_f1_and_s16_do_not_start_order_id_flow() -> None:
     agent, store = _agent()
 
-    agent.handle_message("我的扫地机充不进电了", "routing_f1_no_order")
-    f1_tracker = store.retrieve("routing_f1_no_order")
-    agent.handle_message("我能改收货地址吗？已经发货了", "routing_s16_no_order")
-    s16_tracker = store.retrieve("routing_s16_no_order")
+    agent.handle_message(
+        "我的扫地机充不进电了",
+        "routing_f1_no_order",
+        principal=trusted_test_principal("routing_f1_no_order"),
+    )
+    f1_tracker = store.retrieve(tracker_context("routing_f1_no_order"))
+    agent.handle_message(
+        "我能改收货地址吗？已经发货了",
+        "routing_s16_no_order",
+        principal=trusted_test_principal("routing_s16_no_order"),
+    )
+    s16_tracker = store.retrieve(tracker_context("routing_s16_no_order"))
 
     assert f1_tracker is not None
     assert f1_tracker.active_flow is None

@@ -5,6 +5,7 @@ import pytest
 from app.agent.agent import Agent
 from app.core.tracker_store import InMemoryTrackerStore
 from app.rag.answerer import KnowledgeAnswerer
+from tracker_test_support import trusted_test_principal
 
 
 class FakeKnowledgeAnswerer(KnowledgeAnswerer):
@@ -27,8 +28,16 @@ def _agent() -> Agent:
     return agent
 
 
+def _handle(agent: Agent, message: str, sender_id: str):
+    return agent.handle_message(
+        message,
+        sender_id,
+        principal=trusted_test_principal(sender_id),
+    )
+
+
 def test_logistics_query_with_order_id_calls_business_tool() -> None:
-    response = _agent().handle_message("查一下订单 10001 到哪了", "tool_logistics_user")
+    response = _handle(_agent(), "查一下订单 10001 到哪了", "tool_logistics_user")
     metadata = response[0]["metadata"]
 
     assert metadata["route"] == "tool"
@@ -41,7 +50,7 @@ def test_logistics_query_with_order_id_calls_business_tool() -> None:
 
 
 def test_order_status_query_is_not_overridden_by_logistics_rag_route() -> None:
-    response = _agent().handle_message("帮我查询订单 10001 的状态", "tool_order_status_user")
+    response = _handle(_agent(), "帮我查询订单 10001 的状态", "tool_order_status_user")
     metadata = response[0]["metadata"]
 
     assert metadata["route"] == "tool"
@@ -59,7 +68,7 @@ def test_order_status_query_is_not_overridden_by_logistics_rag_route() -> None:
     ],
 )
 def test_realtime_logistics_query_overrides_generic_logistics_rag_route(message: str) -> None:
-    response = _agent().handle_message(message, "tool_logistics_eval_user")
+    response = _handle(_agent(), message, "tool_logistics_eval_user")
     metadata = response[0]["metadata"]
 
     assert metadata["route"] == "tool"
@@ -69,7 +78,8 @@ def test_realtime_logistics_query_overrides_generic_logistics_rag_route(message:
 
 
 def test_ticket_current_status_query_calls_ticket_status_tool() -> None:
-    response = _agent().handle_message(
+    response = _handle(
+        _agent(),
         "请查询工单 TKT-20260709-FFFFFFFFFFFF 当前状态",
         "tool_ticket_status_user",
     )
@@ -90,8 +100,8 @@ def test_logistics_followup_inherits_order_id_and_calls_tool(followup: str) -> N
     agent = _agent()
     sender_id = "tool_logistics_context_user"
 
-    agent.handle_message("请记住我的订单号是 10001", sender_id)
-    response = agent.handle_message(followup, sender_id)
+    _handle(agent, "请记住我的订单号是 10001", sender_id)
+    response = _handle(agent, followup, sender_id)
     metadata = response[0]["metadata"]
 
     assert metadata["route"] == "tool"
@@ -110,7 +120,7 @@ def test_logistics_followup_inherits_order_id_and_calls_tool(followup: str) -> N
     ],
 )
 def test_logistics_policy_questions_stay_on_rag(message: str) -> None:
-    response = _agent().handle_message(message, "tool_policy_negative_user")
+    response = _handle(_agent(), message, "tool_policy_negative_user")
     metadata = response[0]["metadata"]
 
     assert metadata["route"] == "rag"
@@ -119,7 +129,7 @@ def test_logistics_policy_questions_stay_on_rag(message: str) -> None:
 
 @pytest.mark.parametrize("message", ["如何提交工单", "工单怎么处理"])
 def test_general_ticket_questions_do_not_call_ticket_status_tool(message: str) -> None:
-    response = _agent().handle_message(message, "tool_ticket_negative_user")
+    response = _handle(_agent(), message, "tool_ticket_negative_user")
     metadata = response[0]["metadata"]
 
     assert metadata["route"] != "tool"
@@ -127,7 +137,7 @@ def test_general_ticket_questions_do_not_call_ticket_status_tool(message: str) -
 
 
 def test_logistics_query_without_order_id_uses_rag_and_exposes_missing_argument() -> None:
-    response = _agent().handle_message("帮我查一下物流", "tool_clarify_user")
+    response = _handle(_agent(), "帮我查一下物流", "tool_clarify_user")
     metadata = response[0]["metadata"]
 
     assert metadata["route"] == "rag"
@@ -139,7 +149,7 @@ def test_logistics_query_without_order_id_uses_rag_and_exposes_missing_argument(
 
 
 def test_complaint_creates_ticket_through_business_tool() -> None:
-    response = _agent().handle_message("我要投诉客服态度差", "tool_ticket_user")
+    response = _handle(_agent(), "我要投诉客服态度差", "tool_ticket_user")
     metadata = response[0]["metadata"]
 
     assert metadata["route"] == "ticket"
@@ -152,7 +162,7 @@ def test_complaint_creates_ticket_through_business_tool() -> None:
 
 
 def test_invoice_policy_uses_rag_instead_of_tool() -> None:
-    response = _agent().handle_message("怎么开发票", "tool_invoice_policy_user")
+    response = _handle(_agent(), "怎么开发票", "tool_invoice_policy_user")
     metadata = response[0]["metadata"]
 
     assert metadata["route"] == "rag"
@@ -163,7 +173,7 @@ def test_invoice_policy_uses_rag_instead_of_tool() -> None:
 
 
 def test_invoice_create_with_required_arguments_requires_confirmation() -> None:
-    response = _agent().handle_message("订单 10001 开公司发票", "tool_invoice_user")
+    response = _handle(_agent(), "订单 10001 开公司发票", "tool_invoice_user")
     metadata = response[0]["metadata"]
 
     assert metadata["route"] == "clarify"
@@ -177,7 +187,7 @@ def test_invoice_create_with_required_arguments_requires_confirmation() -> None:
 
 
 def test_tool_failure_returns_friendly_response_without_crashing() -> None:
-    response = _agent().handle_message("查一下订单 99999 到哪了", "tool_failure_user")
+    response = _handle(_agent(), "查一下订单 99999 到哪了", "tool_failure_user")
     metadata = response[0]["metadata"]
 
     assert metadata["route"] == "tool"
