@@ -19,6 +19,7 @@ class EvalCaseMetadata(BaseModel):
     writes_state: bool = False
     scenario: str = Field(default="chat", min_length=1)
     setup_turns: list[str] = Field(default_factory=list)
+    golden: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("scenario")
     @classmethod

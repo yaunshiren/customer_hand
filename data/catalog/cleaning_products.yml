@@ -1,0 +1,173 @@
+schema_version: v1
+catalog_id: cleaning_products_v1
+task_id: V1-01
+product_line: robot_vacuum
+status: approved_scope
+
+supported_models:
+  - model_id: T7
+    canonical_name: 石头扫地机器人 T7
+    aliases:
+      - 石头 T7
+      - T7
+      - roborock T7
+    support_level: standard
+    knowledge_completeness: high
+    capabilities:
+      mop_auto_lift: unsupported
+      auto_empty: unsupported
+      mop_self_wash: unsupported
+      auto_refill: unsupported
+      hot_air_dry: unsupported
+      app_control: supported
+      wifi: 2.4GHz_only
+      base_station: charging_dock
+    knowledge:
+      product_detail_doc_id: PROD_VAC_001
+      manual_doc_ids:
+        - MANUAL_VAC_001
+        - MANUAL_VAC_002
+        - MANUAL_VAC_003
+      faq_doc_ids:
+        - FAQ_VAC_001
+      error_code_doc_ids:
+        - CODE_VAC_001
+    evidence_paths:
+      - data/knowledge/bitselect/01_product/detail/PROD_VAC_001.md
+      - data/knowledge/bitselect/02_manual/product/MANUAL_VAC_001.md
+      - data/knowledge/bitselect/02_manual/product/MANUAL_VAC_002.md
+      - data/knowledge/bitselect/02_manual/product/MANUAL_VAC_003.md
+      - data/knowledge/bitselect/04_faq/trouble/FAQ_VAC_001.md
+      - data/knowledge/bitselect/04_faq/error_code/CODE_VAC_001.md
+    limitations:
+      - 没有 T7 专属故障 FAQ；共享 FAQ 仅能提供通用排障。
+      - 不得提供拖布自动抬升、自动集尘或自清洁基站步骤。
+
+  - model_id: T7S Plus
+    canonical_name: 石头扫地机器人 T7S Plus
+    aliases:
+      - T7S Plus
+      - roborock T7S Plus
+      - A2300RR
+    support_level: limited
+    knowledge_completeness: medium
+    capabilities:
+      mop_auto_lift: supported
+      auto_empty: optional_dedicated_dock
+      mop_self_wash: unsupported
+      auto_refill: unsupported
+      hot_air_dry: unsupported
+      app_control: supported
+      wifi: 2.4GHz_only
+      base_station: optional_auto_empty_dock
+    knowledge:
+      product_detail_doc_id: PROD_VAC_002
+      manual_doc_ids:
+        - MANUAL_VAC_001
+        - MANUAL_VAC_002
+        - MANUAL_VAC_003
+      faq_doc_ids:
+        - FAQ_VAC_001
+      error_code_doc_ids:
+        - CODE_VAC_001
+    evidence_paths:
+      - data/knowledge/bitselect/01_product/detail/PROD_VAC_002.md
+      - data/knowledge/bitselect/02_manual/product/MANUAL_VAC_001.md
+      - data/knowledge/bitselect/02_manual/product/MANUAL_VAC_002.md
+      - data/knowledge/bitselect/02_manual/product/MANUAL_VAC_003.md
+      - data/knowledge/bitselect/04_faq/trouble/FAQ_VAC_001.md
+      - data/knowledge/bitselect/04_faq/error_code/CODE_VAC_001.md
+    limitations:
+      - 专用自动集尘座缺少独立故障 FAQ 和明确错误码范围。
+      - 缺少证据时必须澄清或转人工，不得借用 G10/G10S Pro 基站步骤。
+
+  - model_id: G10
+    canonical_name: 石头扫地机器人 G10
+    aliases:
+      - G10
+      - roborock G10
+      - A29 系列
+    support_level: standard
+    knowledge_completeness: medium
+    capabilities:
+      mop_auto_lift: supported
+      auto_empty: unsupported
+      mop_self_wash: supported
+      auto_refill: supported
+      hot_air_dry: unsupported
+      app_control: supported
+      wifi: 2.4GHz_only
+      base_station: self_cleaning_dock
+    knowledge:
+      product_detail_doc_id: PROD_VAC_003
+      manual_doc_ids:
+        - MANUAL_VAC_001
+        - MANUAL_VAC_002
+        - MANUAL_VAC_003
+      faq_doc_ids:
+        - FAQ_VAC_001
+      error_code_doc_ids:
+        - CODE_VAC_001
+    evidence_paths:
+      - data/knowledge/bitselect/01_product/detail/PROD_VAC_003.md
+      - data/knowledge/bitselect/02_manual/product/MANUAL_VAC_001.md
+      - data/knowledge/bitselect/02_manual/product/MANUAL_VAC_002.md
+      - data/knowledge/bitselect/02_manual/product/MANUAL_VAC_003.md
+      - data/knowledge/bitselect/04_faq/trouble/FAQ_VAC_001.md
+      - data/knowledge/bitselect/04_faq/error_code/CODE_VAC_001.md
+    limitations:
+      - 不支持自动集尘和热风烘干。
+      - 商品详情缺少结构化 product_names 和 device_types 字段。
+
+  - model_id: G10S Pro
+    canonical_name: 石头扫地机器人 G10S Pro
+    aliases:
+      - G10S Pro
+      - 石头 G10S Pro
+      - roborock G10S Pro
+    support_level: standard
+    knowledge_completeness: high
+    capabilities:
+      mop_auto_lift: supported
+      auto_empty: supported
+      mop_self_wash: supported
+      auto_refill: supported
+      hot_air_dry: supported
+      app_control: supported
+      wifi: 2.4GHz_only
+      base_station: all_in_one_dock
+    knowledge:
+      product_detail_doc_id: PROD_VAC_004
+      manual_doc_ids:
+        - MANUAL_VAC_001
+        - MANUAL_VAC_002
+        - MANUAL_VAC_003
+      faq_doc_ids:
+        - FAQ_VAC_001
+      error_code_doc_ids:
+        - CODE_VAC_001
+    evidence_paths:
+      - data/knowledge/bitselect/01_product/detail/PROD_VAC_004.md
+      - data/knowledge/bitselect/02_manual/product/MANUAL_VAC_001.md
+      - data/knowledge/bitselect/02_manual/product/MANUAL_VAC_002.md
+      - data/knowledge/bitselect/02_manual/product/MANUAL_VAC_003.md
+      - data/knowledge/bitselect/04_faq/trouble/FAQ_VAC_001.md
+      - data/knowledge/bitselect/04_faq/error_code/CODE_VAC_001.md
+    limitations:
+      - 自动上下水套件缺少完整故障排查资料。
+      - 持续漏水、无抽水声或无集尘声必须转人工。
+
+excluded_models:
+  - model_id: B205
+    canonical_name: 米家无线吸尘器 2
+    aliases:
+      - 米家吸尘器 2
+      - B205
+    status: unsupported_v1
+    evidence_doc_ids:
+      - PROD_VAC_005
+    evidence_paths:
+      - data/knowledge/bitselect/01_product/detail/PROD_VAC_005.md
+    reason:
+      - 本版产品线限定为扫地机器人。
+      - 缺少独立产品手册、故障 FAQ 和错误码文档。
