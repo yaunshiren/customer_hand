@@ -6,7 +6,19 @@ from typing import Any, Literal
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from app.agent.graph.nodes import action, flow, generate_response, load_context, rag, route, save_context, ticket, tool, understand
+from app.agent.graph.nodes import (
+    action,
+    flow,
+    generate_response,
+    load_context,
+    rag,
+    resolve_product,
+    route,
+    save_context,
+    ticket,
+    tool,
+    understand,
+)
 from app.agent.graph.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -22,6 +34,7 @@ def build_agent_graph() -> CompiledStateGraph:
     graph = StateGraph(AgentState)
 
     graph.add_node("load_context", load_context)
+    graph.add_node("resolve_product", resolve_product)
     graph.add_node("understand", understand)
     graph.add_node("route", route)
     graph.add_node("ticket", ticket)
@@ -33,7 +46,8 @@ def build_agent_graph() -> CompiledStateGraph:
     graph.add_node("save_context", save_context)
 
     graph.add_edge(START, "load_context")
-    graph.add_edge("load_context", "understand")
+    graph.add_edge("load_context", "resolve_product")
+    graph.add_edge("resolve_product", "understand")
     graph.add_edge("understand", "route")
 
     graph.add_conditional_edges(
