@@ -17,6 +17,23 @@ The goal is to keep the system explainable, testable, traceable, secure, bounded
 - Do not modify files unless the user explicitly authorizes implementation.
 - Work on one independently testable and reversible task at a time.
 
+## Learning-mode behavior
+
+When Learning Mode is active:
+
+1. Present file and transition evidence before giving the final architecture label.
+2. Ask the user to draw or describe:
+   - graph nodes
+   - state fields
+   - legal transitions
+   - side effects
+   - failure and handoff paths
+3. Ask the user to classify the current design as workflow, supervisor, or multi-Agent and justify the choice.
+4. Critique the user's classification and compare alternatives only after that attempt.
+5. Review one boundary at a time rather than redesigning the whole graph.
+6. For implementation, use small slices such as state model, one node, one transition, or one test group.
+7. End with a simplified graph or state-machine exercise the user can reproduce independently.
+
 ## When to use
 
 Use this skill when the task involves:

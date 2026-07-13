@@ -1,110 +1,85 @@
 # AGENTS.md
 
-## 项目定位
+## 项目与目标
 
-本仓库是一个基于 FastAPI、LangGraph、Hybrid RAG、Tool/Skill、Memory、Ticket 和 Trace/Eval 的垂直客服 Agent 系统。
+本仓库是基于 FastAPI、LangGraph、Hybrid RAG、Tool/Skill、Memory、Ticket 和 Trace/Eval 的智能清洁设备售后 Agent。
 
-当前目标是：
+目标：
 
-> 建设面向智能清洁设备售后场景、可供受控企业客户试点的企业级 MVP。
+> 建设可供受控企业客户试点的垂直客服 Agent MVP。
 
-当前仓库仍处于从技术原型向企业级 MVP 演进的阶段。安全、身份可信、数据隔离、可测试和可回滚优先于扩展功能数量。
+优先级：身份可信与数据隔离 → 可测试与可回滚 → 垂直 Agent 效果 → 可靠性与运维 → 功能数量。
 
-## 技术栈
+主要边界：
 
-* Python 3.11
-* FastAPI
-* LangGraph
-* Pydantic / pydantic-settings
-* SQLAlchemy / Alembic
-* MySQL
-* Redis
-* ChromaDB / BM25 / Hybrid Retrieval
-* pytest
-* Docker / Docker Compose
-* GitHub Actions
+- `app/entry/`：认证、授权、归一化、限流和幂等
+- `app/agent/graph/`：LangGraph 状态、节点和路由
+- `app/rag/`：知识加载、检索、rerank 和引用
+- `app/tools/`、`app/skills/`：业务 Tool 和 Agent Skill
+- `app/memory/`、`app/tickets/`、`app/persistence/`：状态、工单和持久化
+- `data/eval/`：合成评测数据，禁止真实客户 PII
 
-## 目录职责
+## 安全不变量
 
-* `main.py`：应用创建、middleware、router 和启动入口。
-* `app/entry/`：认证、授权、请求归一化、限流、幂等、安全检测和 trace 注入。
-* `app/api/`：API routes 和请求响应 schema。
-* `app/agent/graph/`：LangGraph 状态、节点、路由和响应流程。
-* `app/rag/`：知识加载、索引、检索、rerank 和引用。
-* `app/tools/`、`app/skills/`：工具 schema、权限、执行和错误处理。
-* `app/tickets/`：工单领域逻辑。
-* `app/persistence/`：ORM、Repository、Migration 和 Trace/Eval Recorder。
-* `app/memory/`：会话记忆、摘要和 query rewrite。
-* `scripts/`：评测、报告和一次性维护脚本。
-* `docs/`：架构、安全、运维和企业级 MVP 文档。
-* `data/eval/`：评测数据，禁止放入真实客户 PII。
+1. Principal 只能来自服务端认证结果。
+2. 客户端的 sender、tenant、owner、role 和 scope 均不可信。
+3. 普通用户的 sender 必须从 Principal 派生，或与其严格一致。
+4. Tracker、Memory、Ticket 和 Trace 必须执行资源级授权。
+5. 无法确认 tenant 或 owner 时必须 fail-closed。
+6. tenant admin 不得自动获得跨 tenant 权限。
+7. 企业资源查询必须包含可信 tenant scope。
+8. LLM、Prompt 和 Tool 参数不能决定身份、权限或租户边界。
+9. 密钥、认证头和未经处理的 PII 不得进入日志或 Trace。
+10. 写操作必须考虑授权、确认、业务幂等、timeout 和结果收敛；默认不得自动重试。
+11. 依赖降级不得造成跨用户或跨 tenant 的状态回退。
 
-## 必须遵守的安全规则
+## 开发与测试
 
-1. Principal 必须来自服务端认证结果。
-2. 客户端提交的 sender、tenant、owner、role 和 scope 均不可信。
-3. 普通用户的 sender 必须从 Principal 派生，或与 Principal 做一致性校验。
-4. Tracker、Memory、Ticket、Trace 等资源必须执行服务端资源级授权。
-5. 无法确认 owner 或 tenant 时必须 fail-closed。
-6. 管理员不得因为拥有 admin 角色而自动获得跨 tenant 权限。
-7. Repository 的企业资源查询必须包含可信 tenant scope。
-8. LLM、Prompt 和 Tool 参数不能决定权限结果。
-9. 密码、Token、API Key、认证头和未经处理的 PII 不得进入日志或 Trace。
-10. 工单等写操作必须考虑权限、明确确认、业务幂等和超时后结果收敛。
-11. 写操作默认不得自动重试。
-12. 所有外部调用必须有明确 timeout。
-
-## 开发规则
-
-1. 先读代码，再给方案。
+1. 先读代码和调用链，再提出方案。
 2. 每次只完成一个可独立测试、审查和回滚的任务。
-3. 不做与当前任务无关的重构。
-4. 保持现有 API 兼容，除非任务明确要求安全性变更。
-5. 安全修复优先于不安全的向后兼容。
-6. 数据库结构变更必须提供 Alembic migration。
-7. Migration 优先采用 expand、backfill、validate、contract。
-8. 业务逻辑变更必须增加 pytest。
-9. 入口层变更必须检查认证、授权、tenant、限流、幂等和统一异常。
-10. 工具必须具备 Pydantic schema、权限、风险等级、timeout、错误返回、Trace 和测试。
-11. 不得写入真实密钥或真实客户数据。
-12. 不得删除、覆盖或格式化用户的无关改动。
-13. 不得执行 Git commit、push、force push 或历史重写，除非用户明确要求。
-14. 测试结果和指标必须来自实际命令，不得编造。
-
-## 测试规则
-
-1. pytest 默认不得读取开发环境的真实 `.env`。
-2. 测试默认不得连接真实 MySQL、Redis、LLM、Chroma 或业务系统。
-3. 集成测试必须有明确 marker，并在获得授权后执行。
-4. 测试至少覆盖正常路径、未认证、无权限、跨用户、跨 tenant、边界输入和依赖异常。
-5. 未执行的测试不得描述为通过。
-6. 不得通过删除断言、降低安全要求或修改 expected 数据规避失败。
+3. 不做无关重构，不自动扩大范围或开始下一任务。
+4. 保持 API 兼容；安全修复可以改变不安全行为。
+5. 数据库结构变更必须提供 Alembic migration。
+6. 业务行为变更必须增加或更新 pytest。
+7. 不得删除断言、降低安全要求或修改 expected 数据来规避失败。
+8. 不得写入真实密钥、Token 或客户数据。
+9. 不得删除、覆盖或格式化用户的无关改动。
+10. 测试结果、指标和命令输出必须来自实际执行。
+11. pytest 默认不得读取开发 `.env`。
+12. 普通测试不得连接真实 MySQL、Redis、LLM、Embedding、Chroma 或业务 Provider。
+13. 集成测试必须有 marker 并显式启用。
+14. fake、mock 和 spy 不得绕过任务需要证明的核心行为。
+15. 未执行的测试不得描述为通过。
+16. 未经明确要求，不执行 commit、push、merge 或历史重写。
 
 ## 命令边界
 
-默认可以执行低风险命令：
+默认允许：
 
 ```bash
 git status --short --branch
 git diff --stat
 git diff
+git diff --check
 git log -5 --oneline
-python -m compileall app main.py scripts test
+python -m compileall <与任务相关的路径>
 pytest -q <与当前任务直接相关的测试>
 ```
 
-执行测试前，必须确认不会连接真实环境。
+执行测试前必须确认不会连接开发或生产环境。
 
-未经用户明确授权，不得执行：
+未经明确授权，不得执行：
 
 ```bash
+pytest -q
 alembic upgrade head
 alembic downgrade
 docker compose up
 docker compose down
 docker compose down -v
-pytest -q
-任何索引重建、数据回填、删除或外部系统调用
+索引重建
+数据迁移、回填或删除
+真实外部 Provider 调用
 git commit
 git push
 ```
@@ -117,49 +92,55 @@ git clean -fd
 git push --force
 ```
 
-## 当前实施顺序
+## 工作模式
 
-当前优先完成阶段 0：
+### Analysis Mode
 
-1. S0-01：Tracker 完整读取鉴权。
-2. S0-02：sender 与 authenticated Principal 绑定。
-3. S0-03：最小 tenant/owner 授权边界。
-4. S0-04：pytest 与开发 `.env` 隔离。
-5. S0-05：Memory 和 Trace 故障隔离。
+用户要求分析、解释、规划或审查时，只读取和分析，不修改文件；说明调用链、证据、风险和可选方案，并区分已实现、计划和未验证事项。
 
-阶段 0 未完成前，不优先实施 Planner、Reviewer、完整 tenant migration 或大型架构重构。
+### Learning Mode
 
-完整路线图以 `docs/enterprise_mvp_roadmap.md` 为准。
+用户要求教学、结对编程、面试准备、逐步学习，或表示不理解时：
 
-## Codex 工作方式
+- 使用 `.agents/skills/learning-pair-programming/SKILL.md`
+- 不直接完成整个任务
+- 先让用户描述问题并提出初步方案
+- 优先使用问题、提示、伪代码和小练习
+- 将实现拆成小步骤，每一步后停止并做理解检查
+- 目标是让用户能够解释、审查、调试并独立复现核心思想
 
-开始任务前先输出：
+除非用户明确结束 Learning Mode 并要求完整实施，否则不得一次性交付完整功能。
 
-1. 需要阅读的文件。
-2. 当前调用链和代码证据。
-3. 准备修改的文件。
-4. 最小修改方案。
-5. 安全与兼容性风险。
-6. 测试计划。
-7. 验收标准。
-8. 回滚方案。
+### Implementation Mode
 
-如果用户只要求分析或规划，不得修改代码。
+只有用户明确要求实施已确认方案时才修改代码。
 
-用户明确要求“开始修改”“实施任务”“修复问题”或“完成分析后直接实施”时，可以在分析后直接修改，不必重复请求确认。
+实施前说明：调用链与证据、修改文件、最小方案、安全与兼容风险、测试计划、验收和回滚方式。
 
-## 完成任务后的输出
+每次只实施一个约定步骤，完成后停止等待审查。
 
-每次实施后必须说明：
+## Skill 规则
 
-* 修改摘要
-* 修改文件及原因
-* 关键设计决策
-* 实际执行的命令和退出码
-* 测试通过、失败和跳过数量
-* API 和数据兼容性影响
-* 未验证事项
-* 后续问题
-* 回滚步骤
+- 全局规则以本文件为准。
+- 专项任务使用 `.agents/skills/<skill-name>/SKILL.md`。
+- Learning Mode 可与专项 Skill 同时启用。
+- 规则冲突时遵循更严格规则。
+- Skill 不得削弱安全、测试、命令或 Git 限制。
 
-不要自动开始下一个任务。
+## 当前状态
+
+S0-01～S0-04 已完成。接下来先复盘并掌握已有改造，再进行 S0-05 最小故障隔离和 S1 垂直 Agent 主线。
+
+完整路线图以 `docs/enterprise_mvp_roadmap.md` 为准；与实现冲突时，以代码和测试证据为准。
+
+## 完成报告
+
+实施结束后说明：
+
+- 修改内容、文件和关键设计
+- 实际命令、退出码和测试统计
+- API、数据和配置兼容性影响
+- 未验证事项
+- 回滚方法
+
+不要自动开始下一任务。

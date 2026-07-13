@@ -14,6 +14,18 @@ Use this skill to turn implementation details into clear, accurate engineering d
 - Do not modify files unless the user explicitly authorizes implementation.
 - Never include real credentials, tokens, customer PII, or identifiable production traces.
 
+## Learning and interview ownership
+
+When Learning Mode is active:
+
+1. Ask the user for a first draft before rewriting it.
+2. Improve the user's explanation without replacing their understanding.
+3. Map every important claim to code, tests, commands, or reports.
+4. Remove claims the user cannot defend with evidence.
+5. Generate likely interview follow-up questions.
+6. Ask the user to answer those questions before providing a model answer.
+7. Prefer a clear, defensible explanation over polished but vague wording.
+
 ## When to use
 
 Use this skill when:

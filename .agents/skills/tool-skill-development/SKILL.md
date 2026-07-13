@@ -35,6 +35,35 @@ A production-like Agent Skill should define:
 - eval cases
 - tests
 
+## Learning-mode design gate
+
+When Learning Mode is active, do not begin with code.
+
+Ask the user to draft the Tool or Skill contract:
+
+- business purpose
+- input and output schema
+- risk level
+- trusted Principal and tenant source
+- authorization policy
+- confirmation policy
+- business idempotency key
+- timeout and retry behavior
+- unknown-outcome behavior
+- trace fields
+- tests
+
+Review the contract first. Then implement one slice at a time:
+
+1. schema
+2. policy
+3. domain service
+4. provider adapter
+5. graph integration
+6. tests and eval cases
+
+After each slice, ask the user to explain why the LLM cannot decide authorization, confirmation, tenant scope, or write permission.
+
 ## When to use
 
 Use this skill when:

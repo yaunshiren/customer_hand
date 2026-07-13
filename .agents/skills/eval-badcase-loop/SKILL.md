@@ -16,6 +16,27 @@ Use this skill to make Agent improvement repeatable and evidence-based:
 - Do not modify files or run state-changing commands unless explicitly authorized.
 - Work on one independently testable and reversible issue at a time.
 
+## Learning-mode dataset creation
+
+When Learning Mode is active:
+
+1. Do not immediately generate the complete evaluation dataset.
+2. Ask the user to write the first 5 to 10 representative cases.
+3. Review those cases for:
+   - taxonomy quality
+   - expected behavior
+   - scoring feasibility
+   - product and model coverage
+   - negative cases
+   - multi-turn cases
+   - safety and handoff cases
+4. Ask the user to classify initial badcases before giving the final labels.
+5. Expand the dataset only after the user explains and confirms the schema.
+6. Generate additional cases in small batches, normally no more than 10 at a time.
+7. Generated cases must extend the user's design rather than replace it.
+8. Do not change expected results to match current system behavior.
+9. After each batch, ask the user to explain which component each case evaluates.
+
 ## When to use
 
 Use this skill when:

@@ -14,6 +14,24 @@ The `app/entry/` layer is the system's identity and request-governance boundary.
 - Do not modify files unless the user explicitly authorizes implementation.
 - Work on one independently testable and reversible task at a time.
 
+## Learning-mode behavior
+
+When Learning Mode is active:
+
+1. Ask the user to trace `request → authentication → Principal → normalization → guard → Agent/service`.
+2. Ask the user to classify sender, tenant, owner, role, and scope as trusted or untrusted.
+3. Ask the user to explain the intended invariant before showing the implementation.
+4. Split changes into:
+   - rejection-path test
+   - pure authorization or normalization logic
+   - route or Agent integration
+   - documentation
+5. After each slice, ask the user to explain:
+   - 401 versus 403 versus hidden-resource 404
+   - why rejection occurs before side effects
+   - which test proves Agent, Tracker, Memory, Tool, or Trace was not called
+6. Do not provide the complete security patch in one step unless the user explicitly exits Learning Mode.
+
 ## When to use
 
 Use this skill when the task touches:
