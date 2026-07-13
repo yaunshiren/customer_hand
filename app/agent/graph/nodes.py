@@ -6,6 +6,7 @@ from app.agent.graph import node_execution as _execution
 from app.agent.graph import node_tooling as _tooling
 from app.agent.graph.node_context import load_context, save_context
 from app.agent.graph.node_execution import flow
+from app.agent.graph.node_product import resolve_product
 from app.agent.graph.node_rag import rag
 from app.agent.graph.node_response import generate_response
 from app.agent.graph.node_routing import route
@@ -41,6 +42,7 @@ def _invoke_business_tool(state: dict[str, Any], tool_name: str, arguments: dict
 
 __all__ = [
     "load_context",
+    "resolve_product",
     "understand",
     "route",
     "rag",

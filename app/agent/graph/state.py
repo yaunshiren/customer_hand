@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
+from app.agent.diagnostic.models import ProductContext
+
 
 class AgentState(TypedDict, total=False):
     """Shared runtime state for the agent graph.
@@ -22,6 +24,7 @@ class AgentState(TypedDict, total=False):
     source: str
     scenario: str
     capability: str
+    product_context: ProductContext
 
     # Persistent conversation context.
     tracker: Any
