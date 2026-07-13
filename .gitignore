@@ -19,6 +19,7 @@ data/chroma/
 data/chroma_smoke/
 docs/*
 !docs/entry_guard.md
+!docs/cleaning_agent_scope.md
 runs/
 reports/*
 !reports/README.md

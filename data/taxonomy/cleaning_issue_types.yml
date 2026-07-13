@@ -1,0 +1,200 @@
+schema_version: v1
+taxonomy_id: cleaning_issue_types_v1
+task_id: V1-01
+
+model_missing_policy:
+  resolution: clarify_first
+  allow_model_guess: false
+  allow_model_specific_guidance: false
+  safe_universal_checks_only: true
+  clarification_sources:
+    - 订单商品名
+    - 机身铭牌
+    - APP 中显示的型号
+
+safety_override:
+  stop_normal_troubleshooting:
+    - 异常发热
+    - 冒烟
+    - 烧焦味
+    - 电气区域进水
+  expected_action: 停止使用并建议人工售后处理
+  repository_evidence:
+    - FAQ_VAC_001
+    - CODE_VAC_001
+  task_decision_only_symptoms:
+    - 冒烟
+    - 电气区域进水
+
+issue_types:
+  - id: POWER_CHARGING_FAILURE
+    phase: 1
+    status: supported
+    description: 主机不开机、无法充电、充电异常或无法回充。
+    example_queries:
+      - 放回充电座后指示灯一直不亮。
+      - 机器人一直找不到充电座。
+    requires_model_for_specific_guidance: true
+    safe_universal_checks:
+      - 确认插座和电源线供电正常。
+      - 仅在无发热、烧焦味、冒烟或进水风险时检查充电触点是否有明显灰尘。
+    knowledge_doc_ids:
+      - MANUAL_VAC_001
+      - FAQ_VAC_001
+      - CODE_VAC_001
+    handoff_when:
+      - 充电指示灯始终不亮或充电后仍无法开机。
+      - 反复出现 E13 或 E14。
+      - 充电时异常发热、冒烟、出现烧焦味或电气区域进水。
+    distinct_from: 明确给出错误码时同时按 ERROR_CODE_DIAGNOSIS 校验；没有错误码时以电源或充电症状为主。
+
+  - id: CLEANING_INTERRUPTION_OR_STUCK
+    phase: 1
+    status: supported
+    description: 清扫中断、频繁卡住、原地打转、被困或异常碰撞。
+    example_queries:
+      - 机器人总在同一个位置卡住。
+      - 空旷地面也会原地打转。
+    requires_model_for_specific_guidance: true
+    safe_universal_checks:
+      - 移除线缆、袜子、玩具和轻薄地毯。
+      - 在断电或停止任务后，用干布清洁外部传感器。
+    knowledge_doc_ids:
+      - MANUAL_VAC_002
+      - FAQ_VAC_001
+      - CODE_VAC_001
+    handoff_when:
+      - 清理环境和传感器后仍原地打转、撞击家具或反复报错。
+      - 刷体或轮组清理后仍不能转动或伴随异响。
+    distinct_from: 本类型关注移动和路线是否能继续；吸力或清洁效果下降属于 CLEANING_PERFORMANCE_DROP。
+
+  - id: CLEANING_PERFORMANCE_DROP
+    phase: 1
+    status: supported
+    description: 吸力变弱、清扫效果下降或风机出现异常声音。
+    example_queries:
+      - 尘盒不满但吸力明显变弱。
+      - 清理后仍吸不干净并有尖锐声音。
+    requires_model_for_specific_guidance: true
+    safe_universal_checks:
+      - 检查尘盒是否已满。
+      - 检查滤网是否堵塞或未完全晾干。
+      - 停止任务后检查主刷、边刷和风道入口是否有可见异物。
+    knowledge_doc_ids:
+      - MANUAL_VAC_003
+      - FAQ_VAC_001
+      - CODE_VAC_001
+    handoff_when:
+      - 清理尘盒、滤网、主刷和风道后仍明显偏弱。
+      - 出现尖锐异响或反复 E18。
+    distinct_from: 本类型处理已经发生的清洁效果下降；周期性清洁和配件更换属于第二阶段保养类型。
+
+  - id: MOPPING_OR_BASE_STATION_FAILURE
+    phase: 1
+    status: supported
+    description: 拖地不出水、基站不洗拖布、不补水、不集尘或出现基站提示。
+    example_queries:
+      - 清水箱有水但基站不洗拖布。
+      - G10S Pro 提示 DOCK_DUST。
+    requires_model_for_specific_guidance: true
+    safe_universal_checks:
+      - 先确认具体型号和基站类型。
+      - 发现持续漏水或电气区域进水时停止使用并转人工。
+    knowledge_doc_ids:
+      - PROD_VAC_001
+      - PROD_VAC_002
+      - PROD_VAC_003
+      - PROD_VAC_004
+      - MANUAL_VAC_001
+      - MANUAL_VAC_003
+      - FAQ_VAC_001
+      - CODE_VAC_001
+    handoff_when:
+      - 补水、重装拖布和检查出水口后仍完全不出水。
+      - 基站无抽水声、无集尘声、持续漏水或反复提示异常。
+      - T7S Plus 专用集尘座问题没有直接知识证据。
+    distinct_from: 必须先按型号确认设备是否具备相关基站能力，不能把相似型号的功能当成通用能力。
+
+  - id: ERROR_CODE_DIAGNOSIS
+    phase: 1
+    status: supported
+    description: 用户明确提供 E 系列错误码或 DOCK 基站提示时的解释和排查。
+    example_queries:
+      - E05 是什么意思？
+      - 基站一直报 DOCK_WASH。
+    requires_model_for_specific_guidance: true
+    safe_universal_checks:
+      - 先确认型号和完整错误码。
+      - 只执行错误码文档中明确、无需拆机的安全步骤。
+    knowledge_doc_ids:
+      - CODE_VAC_001
+    documented_codes:
+      - E01
+      - E02
+      - E03
+      - E04
+      - E05
+      - E06
+      - E07
+      - E08
+      - E09
+      - E10
+      - E11
+      - E12
+      - E13
+      - E14
+      - E15
+      - E16
+      - E18
+      - E21
+      - E22
+      - E23
+      - E24
+      - DOCK_WATER
+      - DOCK_WASH
+      - DOCK_DUST
+    dock_code_scope:
+      G10:
+        - DOCK_WATER
+        - DOCK_WASH
+      G10S Pro:
+        - DOCK_WATER
+        - DOCK_WASH
+        - DOCK_DUST
+      T7S Plus: 专用集尘座错误码范围无法从当前知识确认
+      T7: 不支持自动集尘或自清洁基站
+    handoff_when:
+      - 错误码清理步骤完成后仍反复出现。
+      - 出现异常发热、异响、持续漏水或驱动部件不能转动。
+      - E14 电池异常不建议继续自助处理。
+    distinct_from: 没有明确错误码时使用对应的症状问题类型；错误码诊断不能脱离型号范围。
+
+  - id: NETWORK_OR_MAP_FAILURE
+    phase: 2
+    status: planned_only
+    description: 配网、离线、建图、分区、禁区和定时任务异常。
+    knowledge_doc_ids:
+      - NET_GUIDE_001
+      - NET_GUIDE_002
+      - NET_GUIDE_003
+      - FAQ_NET_001
+      - MANUAL_VAC_002
+
+  - id: MAINTENANCE_AND_CONSUMABLE
+    phase: 2
+    status: planned_only
+    description: 主刷、边刷、滤网、拖布、尘袋的维护周期和型号兼容。
+    knowledge_doc_ids:
+      - MANUAL_VAC_003
+      - PROD_VAC_001
+      - PROD_VAC_002
+      - PROD_VAC_003
+      - PROD_VAC_004
+
+  - id: WARRANTY_AND_REPAIR
+    phase: 2
+    status: planned_only
+    description: 保修范围、检测、维修流程和报价边界。
+    knowledge_doc_ids:
+      - POLICY_WAR_002
+      - POLICY_WAR_003
